@@ -1,4 +1,4 @@
-// Mail au N+1 quand l'assistance technique envoie une demande d'achat (envoi via Brevo)
+// Copie par mail d'une demande d'achat à l'adresse « mail_copie » du demandeur (envoi via Brevo)
 // Secrets Supabase : BREVO_API_KEY, MAIL_FROM (adresse expéditeur validée dans Brevo)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -28,14 +28,14 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: 'Non connecté' }, 401);
 
     const { data: dem } = await sb.from('demandes').select('*, lignes(*)').in('id', (ids || []).map(Number)).eq('demandeur_id', user.id);
-    const { data: profs } = await sb.from('profiles').select('id, nom, email, role');
+    const { data: profs } = await sb.from('profiles').select('id, nom, email, role, mail_copie');
     const P = (id: string | null) => (profs || []).find((p) => p.id === id);
 
     let sent = 0;
     for (const d of dem || []) {
       const auteur = P(d.demandeur_id);
-      const n1 = P(d.n1_id);
-      if (!auteur || auteur.role !== 'assistance' || !n1?.email) continue;
+      const dest = auteur?.mail_copie;
+      if (!auteur || !dest) continue;
       const x = d.details || {};
       const num = PREFIX + d.id;
       const total = d.lignes.reduce((t: number, l: any) => t + l.qte * Number(l.pu), 0);
@@ -48,8 +48,8 @@ Deno.serve(async (req) => {
       ].filter(([, v]) => v);
       const td = 'style="border:1px solid #ccc;padding:6px"';
       const html = `<div style="font:14px Arial;color:#222">
-        <p>Bonjour ${esc(n1.nom)},</p>
-        <p>${esc(auteur.nom)} vient d’envoyer la demande d’achat <b>${num}</b> :</p>
+        <p>Bonjour,</p>
+        <p>Pour information, ${esc(auteur.nom)} vient d’envoyer la demande d’achat <b>${num}</b> :</p>
         <table style="border-collapse:collapse;font:14px Arial">${infos.map(([k, v]) => `<tr><td ${td}><b>${esc(k)}</b></td><td ${td}>${esc(v)}</td></tr>`).join('')}</table>
         <p></p>
         <table style="border-collapse:collapse;font:14px Arial">
@@ -57,11 +57,11 @@ Deno.serve(async (req) => {
           ${d.lignes.map((l: any) => `<tr><td ${td}>${esc(l.designation)}</td><td ${td} align="center">${l.qte}</td><td ${td} align="right">${eur(Number(l.pu))}</td><td ${td} align="right">${eur(l.qte * Number(l.pu))}</td><td ${td}>${esc(l.rubrique || '')}</td></tr>`).join('')}
           <tr><td ${td} colspan="3" align="right"><b>Montant total</b></td><td ${td} align="right"><b>${eur(total)}</b></td><td ${td}></td></tr>
         </table>
-        <p>Elle t’attend dans l’onglet « À valider » sur <a href="${SITE}">la plateforme</a>.</p></div>`;
+        <p>Ce mail est envoyé pour information, aucune action n’est nécessaire.</p></div>`;
       const r = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'api-key': KEY, 'Content-Type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ sender: { email: FROM, name: 'NOVA Achats' }, to: [{ email: n1.email, name: n1.nom }], subject: `Demande d’achat ${num} – ${auteur.nom} – ${d.fournisseur_nom || ''}`, htmlContent: html })
+        body: JSON.stringify({ sender: { email: FROM, name: 'NOVA Achats' }, to: [{ email: dest }], subject: `Demande d’achat ${num} – ${auteur.nom} – ${d.fournisseur_nom || ''}`, htmlContent: html })
       });
       if (!r.ok) return json({ error: 'Brevo : ' + (await r.text()) }, 500);
       sent++;

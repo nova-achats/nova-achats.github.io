@@ -360,6 +360,7 @@ const ADMIN = {
       <label>Rôle<select name="role">${opts([['technicien', 'Technicien (demandeur)'], ['n1', 'N+1 (valideur)'], ['assistance', 'Assistance technique'], ['admin', 'Admin / resp. logistique']], u ? u.role : 'technicien')}</select></label>
       <label>Agence<select name="agence">${opts(S.agences, u && u.agence)}</select></label>
       <label>N+1 qui valide ses demandes<select name="n1_id"><option value="">— Aucun —</option>${opts(valideurs, u && u.n1_id)}</select></label>
+      <label>Copie des DA par mail (optionnel)<input name="mail_copie" type="email" value="${esc(u && u.mail_copie)}" placeholder="Ex. responsable qui veut voir les DA"></label>
       <label>Envoi du panier : 1 fois tous les … jours (0 = sans limite)<input name="delai_jours" type="number" min="0" step="1" value="${u ? u.delai_jours || 0 : 7}"></label>
       <button class="btn primary" type="submit">${u ? 'Enregistrer' : (C.MAILS ? 'Créer le compte et envoyer l’invitation' : 'Créer le compte')}</button>
       ${u ? '<button class="link" type="button" data-a="cancel">Annuler</button>' : ''}
@@ -631,8 +632,9 @@ const FORMS = {
   async user(fd) {
     const row = { nom: fd.get('nom').trim(), role: fd.get('role'), agence: fd.get('agence'), n1_id: fd.get('n1_id') || null };
     const delai_jours = Math.max(0, parseInt(fd.get('delai_jours'), 10) || 0);
+    const mail_copie = (fd.get('mail_copie') || '').trim() || null;
     if (S.edit) {
-      const { error } = await sb.from('profiles').update({ ...row, delai_jours }).eq('id', S.edit);
+      const { error } = await sb.from('profiles').update({ ...row, delai_jours, mail_copie }).eq('id', S.edit);
       if (error) throw error;
       toast('Compte modifié.');
     } else {
@@ -640,7 +642,7 @@ const FORMS = {
       const password = C.MAILS ? undefined : fd.get('password');
       const { error } = await sb.functions.invoke('invite-user', { body: { ...row, email, password, redirect: location.origin + location.pathname } });
       if (error) throw await fnErr(error);
-      await sb.from('profiles').update({ delai_jours }).eq('email', email);
+      await sb.from('profiles').update({ delai_jours, mail_copie }).eq('email', email);
       toast(C.MAILS ? 'Invitation envoyée à ' + email + '.' : 'Compte créé. Donne à ' + row.nom + ' son email et son mot de passe provisoire.');
     }
     S.edit = null; await loadAll(); render();
@@ -678,7 +680,7 @@ const FORMS = {
     if (p.date_fin < p.date_debut) throw new Error('La date de fin est avant la date de démarrage.');
     const { data: id, error } = await sb.rpc('creer_prestation', { p });
     if (error) throw error;
-    if (S.me.role === 'assistance' && S.me.n1_id) notifier({ type: 'prestation', ids: [id] });
+    if (S.me.mail_copie) notifier({ type: 'prestation', ids: [id] });
     await loadAll(); S.screen = 'demandes'; render();
     toast('Demande ' + daNum(id) + (S.me.n1_id ? ' envoyée à ton N+1.' : ' transmise au responsable achats.'));
   },
