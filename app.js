@@ -12,7 +12,7 @@ const saveCart = () => { try { localStorage.setItem('panier', JSON.stringify(car
 
 const NAV = {
   technicien: ['catalogue', 'panier', 'demandes'],
-  n1: ['validation', 'demandes', 'catalogue', 'panier'],
+  n1: ['validation', 'demandes', 'stats', 'catalogue', 'panier'],
   assistance: ['prestation', 'catalogue', 'panier', 'demandes'],
   admin: ['traiter', 'demandes', 'stats', 'catalogue', 'panier', 'prestation', 'admin']
 };
@@ -176,7 +176,7 @@ const VIEWS = {
     if (!S.demandes.length) return `<h1>Demandes d'achat</h1><div class="card empty"><p>Aucune demande pour l’instant.</p></div>`;
     return `<h1>Demandes d'achat</h1><div class="card tw"><table class="tbl" style="min-width:920px">
       <thead><tr><th>N°</th><th>Date</th><th>Demandeur</th><th>Agence</th><th>Fournisseur</th><th>Montant HT</th><th>Statut</th><th>DA</th></tr></thead><tbody>
-      ${S.demandes.map((d) => `<tr><td class="mono nw">${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${S.me.role === 'admin' && recevable(d) ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
+      ${S.demandes.map((d) => `<tr><td class="mono nw">${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${recevable(d) && (d.demandeur_id === S.me.id || S.me.role === 'admin') ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
 
@@ -201,7 +201,7 @@ const VIEWS = {
     const aRecevoir = S.demandes.filter((d) => d.statut === 'everwin' && recevable(d));
     return `<div><h1>DA validées à saisir sur Everwin</h1><p class="mut" style="margin:0">Ouvre la DA, saisis le bon de commande sur Everwin, puis marque-la comme saisie.</p></div>
       ${aSaisir.length ? aSaisir.map((d) => carte(d, `<button class="btn primary" data-a="everwin" data-k="${d.id}">BC saisi sur Everwin</button>`)).join('') : '<div class="card empty"><p>Tout est saisi.</p></div>'}
-      <div style="margin-top:12px"><h1>En attente de réception</h1><p class="mut" style="margin:0">Quand la marchandise arrive, clique sur « Réception » : le stock Excel de l'agence sera mis à jour.</p></div>
+      <div style="margin-top:12px"><h1>En attente de réception</h1><p class="mut" style="margin:0">C’est la personne qui a commandé qui réceptionne depuis son onglet Demandes. Tu peux le faire à sa place si besoin.</p></div>
       ${aRecevoir.length ? aRecevoir.map((d) => carte(d, `<button class="btn primary" data-a="reception" data-k="${d.id}">Réception</button>`)).join('') : '<div class="card empty"><p>Aucune commande en attente.</p></div>'}`;
   },
 
@@ -220,10 +220,16 @@ const VIEWS = {
         <div class="stack" style="gap:6px"><div class="row"><span class="mut">Part des achats</span><b>${pct} %</b></div><div class="meter"><div style="width:${pct}%"></div></div></div>
         <div class="two"><div><span class="lbl">Montant</span><br><b>${eur(m)}</b></div><div><span class="lbl">Demandes</span><br><b>${list.length}</b></div><div><span class="lbl">Articles commandés</span><br><b>${qty}</b></div><div><span class="lbl">Moyenne / demande</span><br><b>${list.length ? eur(m / list.length) : '—'}</b></div></div>
         <div style="padding-top:10px;border-top:1px solid var(--line2);font-size:13px"><span class="mut">Article le plus commandé : </span>${top ? esc(top[0]) + ' (' + top[1] + ')' : '—'}</div></section>` };
-    }).sort((a, b) => b.m - a.m).map((x) => x.html).join('');
-    return `<div><h1>Fournisseurs</h1><p class="mut" style="margin:0">Calculé sur les demandes validées et en attente (hors refusées).</p></div>
+    }).filter((x) => S.me.role === 'admin' || x.m > 0).sort((a, b) => b.m - a.m).map((x) => x.html).join('');
+    const parPers = {};
+    act.forEach((d) => { const k = d.demandeur_id; parPers[k] = parPers[k] || { n: 0, m: 0 }; parPers[k].n++; parPers[k].m += totalDA(d); });
+    const pers = Object.entries(parPers).sort((a, b) => b[1].m - a[1].m)
+      .map(([id, v]) => `<tr><td><b>${esc(nomDe(id))}</b></td><td>${v.n}</td><td class="nw"><b>${eur(v.m)}</b></td><td class="nw">${eur(v.m / v.n)}</td></tr>`).join('');
+    const perim = S.me.role === 'admin' ? 'toutes les demandes' : 'tes demandes et celles de ton équipe';
+    return `<div><h1>Fournisseurs</h1><p class="mut" style="margin:0">Calculé sur ${perim}, validées et en attente (hors refusées).</p></div>
       <div class="kpis"><div class="card kpi"><span class="mut">Montant total commandé</span><b>${eur(tot)}</b></div><div class="card kpi"><span class="mut">Demandes d'achat</span><b>${act.length}</b></div><div class="card kpi"><span class="mut">Montant moyen par demande</span><b>${act.length ? eur(tot / act.length) : '—'}</b></div></div>
-      <div class="fgrid">${cards}</div>`;
+      <div class="fgrid">${cards || '<div class="card empty"><p>Aucune dépense pour le moment.</p></div>'}</div>
+      ${pers ? `<h2 style="margin-top:8px">Par personne</h2><div class="card tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Demandeur</th><th>Demandes</th><th>Montant HT</th><th>Moyenne / demande</th></tr></thead><tbody>${pers}</tbody></table></div>` : ''}`;
   },
 
   prestation() {
