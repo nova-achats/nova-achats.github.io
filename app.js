@@ -21,6 +21,7 @@ const STATUT = { tri: ['Chez le resp. achats', 'b-wait'], besoin: ['En préparat
 const statutDe = (d) => (['validee', 'everwin', 'preparee'].includes(d.statut) && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
 const recevable = (d) => d.type !== 'prestation' && ['validee', 'everwin', 'preparee'].includes(d.statut);
 const estBesoin = (d) => d.statut === 'besoin' || (d.lignes.length > 0 && d.lignes.every((l) => l.prepare));
+const DEVIS = (d) => (d.devis_path ? `<button class="btn" data-a="devis" data-k="${d.id}">Devis</button>` : '');
 const URG = (d) => (d.urgent ? '<span class="badge b-ko">URGENT</span> ' : '');
 function prochainEnvoi() {
   const j = Number(S.me.delai_jours) || 0;
@@ -150,7 +151,7 @@ const VIEWS = {
     const cats = ['Tout', ...C.CATEGORIES.filter((c) => actifs.some((p) => p.categorie === c))];
     return `<div class="cols">
       <aside class="side"><h2 class="lbl" style="margin-bottom:8px">Catégories</h2>${cats.map((c) => `<button class="catb ${S.cat === c ? 'on' : ''}" data-a="cat" data-k="${esc(c)}"><span>${esc(c)}</span><span>${c === 'Tout' ? actifs.length : actifs.filter((p) => p.categorie === c).length}</span></button>`).join('')}</aside>
-      <section class="grow"><div class="bar"><h1>${S.cat === 'Tout' ? 'Catalogue' : esc(S.cat)}</h1></div>
+      <section class="grow"><div class="bar"><h1>${S.cat === 'Tout' ? 'Catalogue' : esc(S.cat)}</h1>${S.me.n1_id ? '<button class="btn" data-a="go" data-k="speciale">Demande spéciale (avec devis)</button>' : ''}</div>
       <div id="grid" class="grid">${gridHtml()}</div></section></div>`;
   },
 
@@ -193,7 +194,7 @@ const VIEWS = {
     if (!S.demandes.length) return `<h1>Demandes d'achat</h1><div class="card empty"><p>Aucune demande pour l’instant.</p></div>`;
     return `<h1>Demandes d'achat</h1><div class="card tw"><table class="tbl" style="min-width:920px">
       <thead><tr><th>N°</th><th>Date</th><th>Demandeur</th><th>Agence</th><th>Fournisseur</th><th>Montant HT</th><th>Statut</th><th>DA</th></tr></thead><tbody>
-      ${S.demandes.map((d) => `<tr><td class="mono nw">${URG(d)}${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${recevable(d) && (d.demandeur_id === S.me.id || S.me.role === 'admin') ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
+      ${S.demandes.map((d) => `<tr><td class="mono nw">${URG(d)}${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${d.devis_path ? ` <button class="btn" data-a="devis" data-k="${d.id}">Devis</button>` : ''}${recevable(d) && (d.demandeur_id === S.me.id || S.me.role === 'admin') ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
 
@@ -205,7 +206,7 @@ const VIEWS = {
       <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">Demandé par ${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
       <div class="tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th></tr></thead><tbody>
       ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td></tr>`).join('')}</tbody></table></div>
-      <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir la DA</button><button class="btn ko" data-a="decide" data-k="${d.id}" data-d="0">Refuser</button><button class="btn ok" data-a="decide" data-k="${d.id}" data-d="1">Valider</button></div>
+      <div class="acts"><span style="margin-right:auto;display:flex;gap:8px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button>${DEVIS(d)}</span><button class="btn ko" data-a="decide" data-k="${d.id}" data-d="0">Refuser</button><button class="btn ok" data-a="decide" data-k="${d.id}" data-d="1">Valider</button></div>
     </section>`).join('');
   },
 
@@ -217,7 +218,7 @@ const VIEWS = {
       <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
       <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th><th>Où ?</th></tr></thead><tbody>
       ${d.lignes.map((l) => { const st = !!S.triStock[l.id]; return `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td><td class="nw"><button class="btn ${st ? '' : 'primary'}" data-a="triLigne" data-k="${l.id}" data-d="0">Achat</button> <button class="btn ${st ? 'primary' : ''}" data-a="triLigne" data-k="${l.id}" data-d="1">Stock</button></td></tr>`; }).join('')}</tbody></table></div>
-      <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir</button><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
+      <div class="acts"><span style="margin-right:auto;display:flex;gap:8px"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${DEVIS(d)}${d.type === 'speciale' && d.fournisseur_id ? `<button class="btn" data-a="auCatalogue" data-k="${d.id}">Ajouter au catalogue</button>` : ''}</span><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
     </section>`).join('');
   },
 
@@ -237,7 +238,7 @@ const VIEWS = {
   traiter() {
     const carte = (d, boutons) => `<section class="card pad" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
       <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}${d.lignes.some((l) => l.qte_recue > 0) ? ' · <b>reçue partiellement</b>' : ''}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button>${boutons}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button>${DEVIS(d)}${boutons}</div>
     </section>`;
     const aSaisir = S.demandes.filter((d) => d.statut === 'validee');
     const aRecevoir = S.demandes.filter((d) => d.statut === 'everwin' && recevable(d));
@@ -274,6 +275,26 @@ const VIEWS = {
       <div class="kpis"><div class="card kpi"><span class="mut">Montant total commandé</span><b>${eur(tot)}</b></div><div class="card kpi"><span class="mut">Demandes d'achat</span><b>${act.length}</b></div><div class="card kpi"><span class="mut">Montant moyen par demande</span><b>${act.length ? eur(tot / act.length) : '—'}</b></div></div>
       <div class="fgrid">${cards || '<div class="card empty"><p>Aucune dépense pour le moment.</p></div>'}</div>
       ${pers ? `<h2 style="margin-top:8px">Par personne</h2><div class="card tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Demandeur</th><th>Paniers envoyés</th><th>Dont urgents</th><th>DA</th><th>Montant HT</th><th>Moyenne / DA</th></tr></thead><tbody>${pers}</tbody></table></div>` : ''}`;
+  },
+
+  speciale() {
+    const four = S.fourn.map((f) => `<option value="${esc(f.nom)}">`).join('');
+    return `<div><h1>Demande spéciale</h1><p class="mut" style="margin:0">Pour un article qui n’est pas au catalogue, avec un devis. Elle arrive chez le responsable achats comme un panier, sans compter dans ta limite d’envoi.</p></div>
+    <form class="card pad stack" data-form="speciale" style="max-width:760px">
+      <datalist id="dl-four">${four}</datalist>
+      <label>Désignation<input name="designation" required placeholder="Ex. Détecteur de gaz portable X-am 2500"></label>
+      <div class="two">
+        <label>Fournisseur<input name="fournisseur" required list="dl-four" placeholder="Choisis ou tape un nouveau"></label>
+        <label>N° du devis (optionnel)<input name="devis_num"></label>
+        <label>Quantité<input name="qte" type="number" min="1" value="1" required></label>
+        <label>Prix unitaire HT du devis (€)<input name="pu" inputmode="decimal" required placeholder="0,00"></label>
+        <label>Agence<select name="agence">${opts(S.agences, S.me.agence)}</select></label>
+        <label>Devis (PDF ou photo)<input name="devis" type="file" accept="application/pdf,image/*"></label>
+      </div>
+      <label>Commentaire<textarea name="commentaire" rows="3" placeholder="Pourquoi, pour quelle affaire…"></textarea></label>
+      <label style="flex-direction:row;align-items:center;gap:8px;font-weight:600;color:#B42318"><input type="checkbox" name="urgent" style="width:18px;height:18px;flex:none"> Besoin urgent</label>
+      <div><button class="btn primary" type="submit">Envoyer la demande</button></div>
+    </form>`;
   },
 
   prestation() {
@@ -436,7 +457,7 @@ function openDoc(id) {
       <div class="t"><div class="t1"><span>DEMANDE D'APPROVISIONNEMENT</span><span>DA N° : ${esc(daNum(d.id))}</span></div><div class="t2"><img src="${C.LOGO}" alt="${esc(C.NOM_SOCIETE)}" onerror="this.remove()"></div></div>
       <div class="band">GÉNÉRALITÉS :</div>
       <div class="gen"><div><b>Demandeur : </b>${esc(nomDe(d.demandeur_id))}</div><div><b>Fournisseur : </b>${esc(fournD(d))}</div><div><b>Date : </b>${dfr(d.created_at)}</div>
-        <div><b>N° affaire : </b>${esc(d.n_affaire || '')}</div><div><b>Devis N° : </b></div><div><b>EIPS : </b>NON</div></div>
+        <div><b>N° affaire : </b>${esc(d.n_affaire || '')}</div><div><b>Devis N° : </b>${esc(d.devis_num || (d.devis_path ? 'joint' : ''))}</div><div><b>EIPS : </b>NON</div></div>
       <div class="band">ARTICLES :</div>
       <table><thead><tr><th style="text-align:left">Libellé</th><th>Qté</th><th>PU HT (av. remise)</th><th>Remise</th><th>PT HT</th><th>Rubrique achat</th><th>Date livraison</th><th>Lieu de livraison</th><th>Observation</th></tr></thead><tbody>
         ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td class="c">${l.qte}</td><td class="r">${eur(l.pu)}</td><td></td><td class="r g">${eur(l.qte * l.pu)}</td><td>${esc(l.rubrique || '')}</td><td class="c">${dfr(l.date_livraison)}</td><td>${esc(l.lieu || d.agence || '')}</td><td></td></tr>`).join('')}
@@ -538,6 +559,22 @@ const ACTIONS = {
   edit: (k) => { S.edit = k; render(); window.scrollTo(0, 0); },
   cancel: () => { S.edit = null; render(); },
   doc: (k) => openDoc(Number(k)),
+  devis: async (k) => {
+    const d = S.demandes.find((x) => x.id === Number(k));
+    const w = window.open('', '_blank');
+    const { data, error } = await sb.storage.from('devis').createSignedUrl(d.devis_path, 600);
+    if (error) { if (w) w.close(); throw error; }
+    if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
+  },
+  auCatalogue: async (k) => {
+    const d = S.demandes.find((x) => x.id === Number(k));
+    const l = d.lignes[0];
+    if (!d.fournisseur_id) throw new Error('Fournisseur inconnu.');
+    if (!confirm('Ajouter « ' + l.designation + ' » au catalogue à ' + eur(l.pu) + ' HT ?')) return;
+    const { error } = await sb.from('produits').insert({ nom: l.designation, categorie: 'Divers', fournisseur_id: d.fournisseur_id, prix: l.pu, unite: 'pièce', actif: true });
+    if (error) throw error;
+    await loadAll(); render(); toast('Ajouté au catalogue (catégorie Divers). Tu peux compléter la photo et la référence dans Administration.');
+  },
   tuto: (k) => openTuto(Number(k) || 0),
   tutoOff: () => { try { const k = 'tuto_off_' + S.me.id; if (localStorage.getItem(k) === '1') localStorage.removeItem(k); else localStorage.setItem(k, '1'); } catch (e) {} },
   close: closeDoc,
@@ -671,6 +708,23 @@ const FORMS = {
     const { error } = await sb.rpc('recevoir', { p_demande: Number(fd.get('demande')), p_items: items });
     if (error) throw error;
     closeDoc(); await loadAll(); render(); toast('Réception enregistrée. Le stock Excel de l’agence sera mis à jour à sa prochaine ouverture.');
+  },
+  async speciale(fd) {
+    const pu = parseFloat(String(fd.get('pu')).replace(',', '.'));
+    if (isNaN(pu)) throw new Error('Prix invalide.');
+    let devis_path = null;
+    const file = fd.get('devis');
+    if (file && file.size) {
+      devis_path = S.me.id + '/' + Date.now() + '-' + file.name.replace(/[^\w.-]/g, '_');
+      const { error } = await sb.storage.from('devis').upload(devis_path, file);
+      if (error) throw error;
+    }
+    const p = { designation: fd.get('designation'), fournisseur: fd.get('fournisseur'), devis_num: fd.get('devis_num'), qte: parseInt(fd.get('qte'), 10), pu,
+      agence: fd.get('agence'), commentaire: fd.get('commentaire'), urgent: fd.get('urgent') === 'on', devis_path };
+    const { data: id, error } = await sb.rpc('creer_speciale', { p });
+    if (error) throw error;
+    await loadAll(); S.screen = 'demandes'; render();
+    toast('Demande ' + daNum(id) + ' envoyée au responsable achats.');
   },
   async prestation(fd) {
     const p = Object.fromEntries(fd.entries());
