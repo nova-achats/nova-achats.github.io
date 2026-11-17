@@ -5,7 +5,7 @@ if (C.ICONE) { const ic = document.createElement('link'); ic.rel = 'icon'; ic.hr
 const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY);
 const NEED_PWD = /type=(invite|recovery)/.test(location.hash);
 
-const S = { me: null, profils: [], agences: [], fourn: [], produits: [], demandes: [], screen: null, cat: 'Tout', search: '', tailles: {}, adminTab: 'users', edit: null };
+const S = { me: null, profils: [], agences: [], fourn: [], produits: [], demandes: [], screen: null, cat: 'Tout', search: '', tailles: {}, triStock: {}, adminTab: 'users', edit: null };
 let cart = {};
 try { cart = JSON.parse(localStorage.getItem('panier') || '{}'); } catch (e) { cart = {}; }
 const saveCart = () => { try { localStorage.setItem('panier', JSON.stringify(cart)); } catch (e) {} };
@@ -197,13 +197,13 @@ const VIEWS = {
 
   tri() {
     const list = S.demandes.filter((d) => d.statut === 'tri');
-    const head = `<div><h1>Demandes à trier</h1><p class="mut" style="margin:0"><b>Demande d’achat</b> : part chez le N+1 pour validation, puis revient dans « À saisir Everwin ». <b>Besoin</b> : tu l’as en stock général, ça part direct dans « Besoins » pour préparer le carton.</p></div>`;
+    const head = `<div><h1>Demandes à trier</h1><p class="mut" style="margin:0">Pour chaque article : <b>Achat</b> = part dans la DA chez le N+1, <b>Stock</b> = tu l’as en stock général, ça va dans la fiche besoin de la personne.</p></div>`;
     if (!list.length) return head + `<div class="card empty"><p>Rien à trier.</p></div>`;
     return head + list.map((d) => `<section class="card">
       <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
-      <div class="tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th></tr></thead><tbody>
-      ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td></tr>`).join('')}</tbody></table></div>
-      <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir</button><button class="btn" data-a="trier" data-k="${d.id}" data-d="besoin">Besoin (stock général)</button><button class="btn primary" data-a="trier" data-k="${d.id}" data-d="da">Demande d’achat → N+1</button></div>
+      <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th><th>Où ?</th></tr></thead><tbody>
+      ${d.lignes.map((l) => { const st = !!S.triStock[l.id]; return `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td><td class="nw"><button class="btn ${st ? '' : 'primary'}" data-a="triLigne" data-k="${l.id}" data-d="0">Achat</button> <button class="btn ${st ? 'primary' : ''}" data-a="triLigne" data-k="${l.id}" data-d="1">Stock</button></td></tr>`; }).join('')}</tbody></table></div>
+      <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir</button><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
     </section>`).join('');
   },
 
@@ -212,9 +212,9 @@ const VIEWS = {
     const prets = S.demandes.filter((d) => d.statut === 'preparee');
     const head = `<div><h1>Besoins à préparer</h1><p class="mut" style="margin:0">Coche au fur et à mesure que tu remplis le carton. Quand tout est coché, c’est déduit du stock général et le demandeur peut réceptionner.</p></div>`;
     const cartes = list.length ? list.map((d) => `<section class="card">
-      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}</b><span class="mut">${d.lignes.filter((l) => l.prepare).length} / ${d.lignes.length} articles dans le carton${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div></div>
+      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}</b><span class="mut">${d.lignes.filter((l) => l.prepare).length} / ${d.lignes.length} articles dans le carton${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><button class="btn" data-a="doc" data-k="${d.id}">Fiche</button></div>
       <div class="tw"><table class="tbl" style="min-width:420px"><thead><tr><th style="width:60px">Carton</th><th>Désignation</th><th>Qté</th></tr></thead><tbody>
-      ${d.lignes.map((l) => `<tr style="${l.prepare ? 'opacity:.55' : ''}"><td><input type="checkbox" style="width:20px;height:20px" data-a="cocher" data-k="${l.id}" data-d="${l.prepare ? 0 : 1}" ${l.prepare ? 'checked' : ''} aria-label="Dans le carton"></td><td>${l.prepare ? `<s>${esc(l.designation)}</s>` : esc(l.designation)}</td><td><b>${l.qte}</b></td></tr>`).join('')}</tbody></table></div>
+      ${d.lignes.map((l) => `<tr style="${l.prepare ? 'opacity:.55' : ''}"><td><input type="checkbox" style="width:20px;height:20px" data-a="cocher" data-k="${l.id}" data-d="${l.prepare ? 0 : 1}" ${l.prepare ? 'checked' : ''} aria-label="Dans le carton"></td><td>${l.prepare ? `<s>${esc(l.designation)}</s>` : esc(l.designation)}${(prodDe(l.produit_id) || {}).ref ? `<br><span class="ref">${esc(prodDe(l.produit_id).ref)}</span>` : ''}</td><td><b>${l.qte}</b></td></tr>`).join('')}</tbody></table></div>
     </section>`).join('') : '<div class="card empty"><p>Aucun besoin à préparer.</p></div>';
     return head + cartes + `<div style="margin-top:12px"><h1>Cartons prêts · en attente de réception</h1></div>` +
       (prets.length ? `<div class="card tw"><table class="tbl" style="min-width:560px"><thead><tr><th>N°</th><th>Demandeur</th><th>Agence</th><th>Préparé le</th><th></th></tr></thead><tbody>${prets.map((d) => `<tr><td class="mono">${esc(daNum(d.id))}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${dfr(d.valide_le)}</td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="card empty"><p>Aucun carton en attente.</p></div>');
@@ -397,6 +397,7 @@ function lignesProduitsAdmin() {
 function openDoc(id) {
   const d = S.demandes.find((x) => x.id === id);
   if (!d) return;
+  if (estBesoin(d)) return openFiche(d);
   const ok = d.statut === 'validee' || d.statut === 'everwin' || (d.statut === 'recue' && !estBesoin(d));
   const visa = estBesoin(d) ? '<span class="mut" style="font-style:italic">Servi sur stock général</span>'
     : d.statut === 'tri' ? '<span class="mut" style="font-style:italic">Chez le responsable achats</span>'
@@ -443,6 +444,23 @@ function openReception(id) {
     </form></div>`;
   $('#modal').classList.add('show');
 }
+function openFiche(d) {
+  $('#modal').innerHTML = `<div class="mbox" role="dialog" aria-modal="true" aria-label="Fiche besoin">
+    <div class="mbar"><b>Fiche besoin ${esc(daNum(d.id))}</b><div style="display:flex;gap:8px"><button class="btn primary" data-a="print">Télécharger en PDF</button><button class="btn" data-a="close">Fermer</button></div></div>
+    <div class="mbody"><div class="da">
+      <div class="t"><div class="t1"><span>FICHE BESOIN · STOCK GÉNÉRAL</span><span>N° : ${esc(daNum(d.id))}</span></div><div class="t2"><img src="${C.LOGO}" alt="${esc(C.NOM_SOCIETE)}" onerror="this.remove()"></div></div>
+      <div class="band">POUR :</div>
+      <div class="gen"><div><b>Personne : </b>${esc(nomDe(d.demandeur_id))}</div><div><b>Agence : </b>${esc(d.agence || '')}</div><div><b>Date : </b>${dfr(d.created_at)}</div></div>
+      <div class="band">ARTICLES :</div>
+      <table><thead><tr><th style="text-align:left">Désignation</th><th>Référence</th><th>Qté</th><th>Dans le carton</th><th>Reçu</th></tr></thead><tbody>
+        ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td class="c">${esc((prodDe(l.produit_id) || {}).ref || '')}</td><td class="c"><b>${l.qte}</b></td><td class="c">${l.prepare ? '✔' : '☐'}</td><td class="c">${l.qte_recue ? l.qte_recue : '☐'}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="foot"><div><b>Commentaires :</b><span style="white-space:pre-line">${esc(d.commentaire || '')}</span></div>
+        <div><b>Préparé le :</b><span>${d.statut === 'besoin' ? '' : dfr(d.valide_le)}</span></div>
+        <div><b>Statut :</b><span>${esc(statutDe(d)[0])}</span></div></div>
+    </div></div></div>`;
+  $('#modal').classList.add('show');
+}
 function closeDoc() { $('#modal').classList.remove('show'); $('#modal').innerHTML = ''; }
 
 /* ---------- actions (clics) ---------- */
@@ -485,12 +503,17 @@ const ACTIONS = {
     await loadAll(); render(); toast('Marquée comme saisie sur Everwin.');
   },
   reception: (k) => openReception(Number(k)),
-  trier: async (k, d) => {
-    const { error } = await sb.rpc('trier_demande', { p_id: Number(k), p_mode: d });
+  triLigne: (k, d) => { if (d === '1') S.triStock[k] = 1; else delete S.triStock[k]; render(); },
+  trier: async (k) => {
+    const d = S.demandes.find((x) => x.id === Number(k));
+    const stock = d.lignes.filter((l) => S.triStock[l.id]).map((l) => l.id);
+    const achat = d.lignes.length - stock.length;
+    const { error } = await sb.rpc('trier_lignes', { p_id: d.id, p_stock: stock });
     if (error) throw error;
-    if (d === 'da') notifier({ type: 'soumise', ids: [Number(k)] });
+    if (achat) notifier({ type: 'soumise', ids: [d.id] });
+    stock.forEach((id) => delete S.triStock[id]);
     await loadAll(); render();
-    toast(d === 'da' ? 'Envoyée au N+1 pour validation.' : 'Ajoutée aux besoins à préparer.');
+    toast([achat && achat + ' article(s) envoyé(s) au N+1', stock.length && stock.length + ' article(s) dans la fiche besoin'].filter(Boolean).join(' · ') + '.');
   },
   cocher: async (k, d) => {
     const { data, error } = await sb.rpc('cocher_ligne', { p_ligne: Number(k), p_ok: d === '1' });
