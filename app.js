@@ -554,7 +554,6 @@ const ACTIONS = {
     if (!ok && !confirm('Refuser cette demande ?')) return;
     const { error } = await sb.rpc('valider_demande', { p_id: Number(k), p_ok: ok });
     if (error) throw error;
-    notifier({ type: ok ? 'validee' : 'refusee', ids: [Number(k)] });
     await loadAll(); render();
     toast(ok ? 'Demande validée.' : 'Demande refusée.');
   },
@@ -571,7 +570,6 @@ const ACTIONS = {
     const achat = d.lignes.length - stock.length;
     const { error } = await sb.rpc('trier_lignes', { p_id: d.id, p_stock: stock });
     if (error) throw error;
-    if (achat) notifier({ type: 'soumise', ids: [d.id] });
     stock.forEach((id) => delete S.triStock[id]);
     await loadAll(); render();
     toast([achat && achat + ' article(s) envoyé(s) au N+1', stock.length && stock.length + ' article(s) dans la fiche besoin'].filter(Boolean).join(' · ') + '.');
@@ -581,7 +579,6 @@ const ACTIONS = {
     const { data, error } = await sb.rpc('cocher_ligne', { p_ligne: Number(k), p_ok: d === '1' });
     if (error) { render(); throw error; }
     await loadAll(); render();
-    if (data === 'preparee' && dem) notifier({ type: 'preparee', ids: [dem.id] });
     if (data === 'preparee') toast('Carton complet : déduit du stock général, le demandeur peut réceptionner.');
   },
   delDA: async (k) => {
@@ -628,7 +625,6 @@ const FORMS = {
     const { data: ids, error } = await sb.rpc('creer_demandes', { p_agence: fd.get('agence'), p_commentaire: fd.get('commentaire'), p_items: items, p_urgent: fd.get('urgent') === 'on' });
     if (error) throw error;
     cart = {}; saveCart();
-    notifier({ type: 'panier', ids });
     await loadAll(); S.screen = 'demandes'; render();
     toast(ids.length > 1 ? ids.length + ' demandes envoyées au responsable achats.' : 'Demande envoyée au responsable achats.');
   },
@@ -682,7 +678,7 @@ const FORMS = {
     if (p.date_fin < p.date_debut) throw new Error('La date de fin est avant la date de démarrage.');
     const { data: id, error } = await sb.rpc('creer_prestation', { p });
     if (error) throw error;
-    notifier({ type: 'soumise', ids: [id] });
+    if (S.me.role === 'assistance' && S.me.n1_id) notifier({ type: 'prestation', ids: [id] });
     await loadAll(); S.screen = 'demandes'; render();
     toast('Demande ' + daNum(id) + (S.me.n1_id ? ' envoyée à ton N+1.' : ' transmise au responsable achats.'));
   },
