@@ -21,6 +21,15 @@ const STATUT = { tri: ['Chez le resp. achats', 'b-wait'], besoin: ['En préparat
 const statutDe = (d) => (['validee', 'everwin', 'preparee'].includes(d.statut) && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
 const recevable = (d) => d.type !== 'prestation' && ['validee', 'everwin', 'preparee'].includes(d.statut);
 const estBesoin = (d) => d.statut === 'besoin' || (d.lignes.length > 0 && d.lignes.every((l) => l.prepare));
+const SPL = `<tr class="spl"><td><input name="l_designation" required placeholder="Désignation (comme sur le devis)"></td><td style="width:90px"><input name="l_qte" type="number" min="1" value="1" required></td><td style="width:130px"><input name="l_pu" inputmode="decimal" required placeholder="0,00"></td><td style="width:40px"><button type="button" class="link" style="color:#B42318" data-a="speMoins" aria-label="Supprimer la ligne">✕</button></td></tr>`;
+const num = (v) => parseFloat(String(v || '').replace(/\s/g, '').replace(',', '.'));
+function speTotal() {
+  const f = document.querySelector('form[data-form=speciale]'); if (!f) return;
+  let t = num(f.port.value) || 0;
+  f.querySelectorAll('tr.spl').forEach((r) => { t += (num(r.querySelector('[name=l_qte]').value) || 0) * (num(r.querySelector('[name=l_pu]').value) || 0); });
+  $('#spTot').textContent = eur(t);
+}
+document.addEventListener('input', (e) => { if (e.target.closest('form[data-form=speciale]')) speTotal(); });
 const DEVIS = (d) => (d.devis_path ? `<button class="btn" data-a="devis" data-k="${d.id}">Devis</button>` : '');
 const URG = (d) => (d.urgent ? '<span class="badge b-ko">URGENT</span> ' : '');
 function prochainEnvoi() {
@@ -217,8 +226,8 @@ const VIEWS = {
     return head + list.map((d) => `<section class="card">
       <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
       <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th><th>Où ?</th></tr></thead><tbody>
-      ${d.lignes.map((l) => { const st = !!S.triStock[l.id]; return `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td><td class="nw"><button class="btn ${st ? '' : 'primary'}" data-a="triLigne" data-k="${l.id}" data-d="0">Achat</button> <button class="btn ${st ? 'primary' : ''}" data-a="triLigne" data-k="${l.id}" data-d="1">Stock</button></td></tr>`; }).join('')}</tbody></table></div>
-      <div class="acts"><span style="margin-right:auto;display:flex;gap:8px"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${DEVIS(d)}${d.type === 'speciale' && d.fournisseur_id ? `<button class="btn" data-a="auCatalogue" data-k="${d.id}">Ajouter au catalogue</button>` : ''}</span><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
+      ${d.lignes.map((l) => { const st = !!S.triStock[l.id]; return `<tr><td>${esc(l.designation)}${d.type === 'speciale' && d.fournisseur_id && l.designation !== 'Frais de port' ? ` <button class="link" style="font-size:12px" data-a="auCatalogue" data-k="${l.id}">+ catalogue</button>` : ''}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td><td class="nw"><button class="btn ${st ? '' : 'primary'}" data-a="triLigne" data-k="${l.id}" data-d="0">Achat</button> <button class="btn ${st ? 'primary' : ''}" data-a="triLigne" data-k="${l.id}" data-d="1">Stock</button></td></tr>`; }).join('')}</tbody></table></div>
+      <div class="acts"><span style="margin-right:auto;display:flex;gap:8px"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${DEVIS(d)}</span><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
     </section>`).join('');
   },
 
@@ -282,15 +291,17 @@ const VIEWS = {
     return `<div><h1>Demande spéciale</h1><p class="mut" style="margin:0">Pour un article qui n’est pas au catalogue, avec un devis. Elle arrive chez le responsable achats comme un panier, sans compter dans ta limite d’envoi.</p></div>
     <form class="card pad stack" data-form="speciale" style="max-width:760px">
       <datalist id="dl-four">${four}</datalist>
-      <label>Désignation<input name="designation" required placeholder="Ex. Détecteur de gaz portable X-am 2500"></label>
       <div class="two">
         <label>Fournisseur<input name="fournisseur" required list="dl-four" placeholder="Choisis ou tape un nouveau"></label>
         <label>N° du devis (optionnel)<input name="devis_num"></label>
-        <label>Quantité<input name="qte" type="number" min="1" value="1" required></label>
-        <label>Prix unitaire HT du devis (€)<input name="pu" inputmode="decimal" required placeholder="0,00"></label>
         <label>Agence<select name="agence">${opts(S.agences, S.me.agence)}</select></label>
         <label>Devis (PDF ou photo)<input name="devis" type="file" accept="application/pdf,image/*"></label>
       </div>
+      <h2 style="margin-top:6px">Lignes du devis</h2>
+      <div class="tw"><table class="tbl" style="min-width:520px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT (€)</th><th></th></tr></thead><tbody id="spl">${SPL.repeat(1)}</tbody></table></div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center"><button type="button" class="btn" data-a="spePlus">+ Ajouter une ligne</button>
+        <label style="flex-direction:row;align-items:center;gap:8px">Frais de port HT (€)<input name="port" inputmode="decimal" placeholder="0,00" style="width:110px"></label>
+        <b style="margin-left:auto">Total HT : <span id="spTot">0,00 €</span></b></div>
       <label>Commentaire<textarea name="commentaire" rows="3" placeholder="Pourquoi, pour quelle affaire…"></textarea></label>
       <label style="flex-direction:row;align-items:center;gap:8px;font-weight:600;color:#B42318"><input type="checkbox" name="urgent" style="width:18px;height:18px;flex:none"> Besoin urgent</label>
       <div><button class="btn primary" type="submit">Envoyer la demande</button></div>
@@ -566,9 +577,11 @@ const ACTIONS = {
     if (error) { if (w) w.close(); throw error; }
     if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
   },
+  spePlus: () => { $('#spl').insertAdjacentHTML('beforeend', SPL); $('#spl tr:last-child input').focus(); },
+  speMoins: (k, d, el) => { if ($('#spl').children.length > 1) { el.closest('tr').remove(); speTotal(); } },
   auCatalogue: async (k) => {
-    const d = S.demandes.find((x) => x.id === Number(k));
-    const l = d.lignes[0];
+    const l = S.demandes.flatMap((x) => x.lignes.map((y) => ({ ...y, d: x }))).find((y) => y.id === Number(k));
+    const d = l.d;
     if (!d.fournisseur_id) throw new Error('Fournisseur inconnu.');
     if (!confirm('Ajouter « ' + l.designation + ' » au catalogue à ' + eur(l.pu) + ' HT ?')) return;
     const { error } = await sb.from('produits').insert({ nom: l.designation, categorie: 'Divers', fournisseur_id: d.fournisseur_id, prix: l.pu, unite: 'pièce', actif: true });
@@ -710,8 +723,11 @@ const FORMS = {
     closeDoc(); await loadAll(); render(); toast('Réception enregistrée. Le stock Excel de l’agence sera mis à jour à sa prochaine ouverture.');
   },
   async speciale(fd) {
-    const pu = parseFloat(String(fd.get('pu')).replace(',', '.'));
-    if (isNaN(pu)) throw new Error('Prix invalide.');
+    const d_ = fd.getAll('l_designation'), q_ = fd.getAll('l_qte'), p_ = fd.getAll('l_pu');
+    const lignes = d_.map((d, i) => ({ designation: d.trim(), qte: parseInt(q_[i], 10), pu: num(p_[i]) }));
+    if (lignes.some((l) => isNaN(l.pu))) throw new Error('Un prix est invalide.');
+    const port = num(fd.get('port'));
+    if (port > 0) lignes.push({ designation: 'Frais de port', qte: 1, pu: port });
     let devis_path = null;
     const file = fd.get('devis');
     if (file && file.size) {
@@ -719,7 +735,7 @@ const FORMS = {
       const { error } = await sb.storage.from('devis').upload(devis_path, file);
       if (error) throw error;
     }
-    const p = { designation: fd.get('designation'), fournisseur: fd.get('fournisseur'), devis_num: fd.get('devis_num'), qte: parseInt(fd.get('qte'), 10), pu,
+    const p = { fournisseur: fd.get('fournisseur'), devis_num: fd.get('devis_num'), lignes,
       agence: fd.get('agence'), commentaire: fd.get('commentaire'), urgent: fd.get('urgent') === 'on', devis_path };
     const { data: id, error } = await sb.rpc('creer_speciale', { p });
     if (error) throw error;
@@ -760,7 +776,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-a]');
   if (!el || !ACTIONS[el.dataset.a]) return;
   el.disabled = true;
-  try { await ACTIONS[el.dataset.a](el.dataset.k, el.dataset.d); } catch (err) { fail(err); } finally { if (el.isConnected) el.disabled = false; }
+  try { await ACTIONS[el.dataset.a](el.dataset.k, el.dataset.d, el); } catch (err) { fail(err); } finally { if (el.isConnected) el.disabled = false; }
 });
 document.addEventListener('submit', async (e) => {
   const f = e.target.closest('form[data-form]');
