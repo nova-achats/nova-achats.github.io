@@ -14,12 +14,13 @@ const NAV = {
   technicien: ['catalogue', 'panier', 'demandes'],
   n1: ['validation', 'demandes', 'stats', 'catalogue', 'panier'],
   assistance: ['prestation', 'catalogue', 'panier', 'demandes'],
-  admin: ['traiter', 'demandes', 'stats', 'catalogue', 'panier', 'prestation', 'admin']
+  admin: ['tri', 'besoins', 'traiter', 'demandes', 'stats', 'catalogue', 'panier', 'prestation', 'admin']
 };
-const LABEL = { catalogue: 'Catalogue', panier: 'Panier', prestation: 'Demande d’achat', demandes: 'Demandes', validation: 'À valider', traiter: 'À saisir Everwin', stats: 'Stats fournisseurs', admin: 'Administration' };
-const STATUT = { attente: ['En attente N+1', 'b-wait'], validee: ['Validée · à saisir Everwin', 'b-ok'], everwin: ['BC saisi Everwin', 'b-done'], refusee: ['Refusée', 'b-ko'], recue: ['Reçue', 'b-done'] };
-const statutDe = (d) => ((d.statut === 'validee' || d.statut === 'everwin') && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
-const recevable = (d) => d.type !== 'prestation' && (d.statut === 'validee' || d.statut === 'everwin');
+const LABEL = { catalogue: 'Catalogue', panier: 'Panier', prestation: 'Demande d’achat', demandes: 'Demandes', validation: 'À valider', tri: 'À trier', besoins: 'Besoins', traiter: 'À saisir Everwin', stats: 'Stats fournisseurs', admin: 'Administration' };
+const STATUT = { tri: ['Chez le resp. achats', 'b-wait'], besoin: ['En préparation (stock)', 'b-wait'], preparee: ['Prête · à réceptionner', 'b-ok'], attente: ['En attente N+1', 'b-wait'], validee: ['Validée · à saisir Everwin', 'b-ok'], everwin: ['BC saisi Everwin', 'b-done'], refusee: ['Refusée', 'b-ko'], recue: ['Reçue', 'b-done'] };
+const statutDe = (d) => (['validee', 'everwin', 'preparee'].includes(d.statut) && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
+const recevable = (d) => d.type !== 'prestation' && ['validee', 'everwin', 'preparee'].includes(d.statut);
+const estBesoin = (d) => d.statut === 'besoin' || (d.lignes.length > 0 && d.lignes.every((l) => l.prepare));
 const ROLE = { technicien: 'Technicien', n1: 'N+1', admin: 'Admin', assistance: 'Assistance technique' };
 
 /* ---------- utilitaires ---------- */
@@ -113,6 +114,8 @@ function renderPwd() {
 function badge(k) {
   if (k === 'panier') return Object.values(cart).reduce((a, b) => a + b, 0);
   if (k === 'validation') return S.demandes.filter((d) => d.n1_id === S.me.id && d.statut === 'attente').length;
+  if (k === 'tri') return S.demandes.filter((d) => d.statut === 'tri').length;
+  if (k === 'besoins') return S.demandes.filter((d) => d.statut === 'besoin').length;
   if (k === 'traiter') return S.demandes.filter((d) => d.statut === 'validee').length;
   return 0;
 }
@@ -160,7 +163,7 @@ const VIEWS = {
         <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Quantité</th><th>PU HT</th><th>Total HT</th><th><span class="sr">Action</span></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
     }).join('');
     const n1 = S.me.n1_id ? nomDe(S.me.n1_id) : 'Aucun — contacte l’admin';
-    return `<div><h1>Panier</h1><p class="mut" style="margin:0">Une demande d'achat est créée par fournisseur, puis envoyée à ton N+1.</p></div>
+    return `<div><h1>Panier</h1><p class="mut" style="margin:0">Une demande est créée par fournisseur, puis envoyée au responsable achats.</p></div>
       <div class="cols"><div class="grow stack">${blocs}</div>
       <form class="card side2 stack" data-form="envoyer"><h2>Récapitulatif</h2>
         <div class="row"><span class="mut">Demandes d'achat</span><b>${Object.keys(groups).length}</b></div>
@@ -168,7 +171,7 @@ const VIEWS = {
         <label>Agence<select name="agence">${opts(S.agences, S.me.agence)}</select></label>
         <label>Commentaire<textarea name="commentaire" rows="3" placeholder="Ex. réassort chantier, dotation EPI…"></textarea></label>
         <div class="row"><span class="mut">Valideur</span><b>${esc(n1)}</b></div>
-        <button class="btn primary" type="submit">Envoyer pour validation</button>
+        <button class="btn primary" type="submit">Envoyer la demande</button>
       </form></div>`;
   },
 
@@ -192,6 +195,31 @@ const VIEWS = {
     </section>`).join('');
   },
 
+  tri() {
+    const list = S.demandes.filter((d) => d.statut === 'tri');
+    const head = `<div><h1>Demandes à trier</h1><p class="mut" style="margin:0"><b>Demande d’achat</b> : part chez le N+1 pour validation, puis revient dans « À saisir Everwin ». <b>Besoin</b> : tu l’as en stock général, ça part direct dans « Besoins » pour préparer le carton.</p></div>`;
+    if (!list.length) return head + `<div class="card empty"><p>Rien à trier.</p></div>`;
+    return head + list.map((d) => `<section class="card">
+      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
+      <div class="tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th></tr></thead><tbody>
+      ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td></tr>`).join('')}</tbody></table></div>
+      <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir</button><button class="btn" data-a="trier" data-k="${d.id}" data-d="besoin">Besoin (stock général)</button><button class="btn primary" data-a="trier" data-k="${d.id}" data-d="da">Demande d’achat → N+1</button></div>
+    </section>`).join('');
+  },
+
+  besoins() {
+    const list = S.demandes.filter((d) => d.statut === 'besoin');
+    const prets = S.demandes.filter((d) => d.statut === 'preparee');
+    const head = `<div><h1>Besoins à préparer</h1><p class="mut" style="margin:0">Coche au fur et à mesure que tu remplis le carton. Quand tout est coché, c’est déduit du stock général et le demandeur peut réceptionner.</p></div>`;
+    const cartes = list.length ? list.map((d) => `<section class="card">
+      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}</b><span class="mut">${d.lignes.filter((l) => l.prepare).length} / ${d.lignes.length} articles dans le carton${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div></div>
+      <div class="tw"><table class="tbl" style="min-width:420px"><thead><tr><th style="width:60px">Carton</th><th>Désignation</th><th>Qté</th></tr></thead><tbody>
+      ${d.lignes.map((l) => `<tr style="${l.prepare ? 'opacity:.55' : ''}"><td><input type="checkbox" style="width:20px;height:20px" data-a="cocher" data-k="${l.id}" data-d="${l.prepare ? 0 : 1}" ${l.prepare ? 'checked' : ''} aria-label="Dans le carton"></td><td>${l.prepare ? `<s>${esc(l.designation)}</s>` : esc(l.designation)}</td><td><b>${l.qte}</b></td></tr>`).join('')}</tbody></table></div>
+    </section>`).join('') : '<div class="card empty"><p>Aucun besoin à préparer.</p></div>';
+    return head + cartes + `<div style="margin-top:12px"><h1>Cartons prêts · en attente de réception</h1></div>` +
+      (prets.length ? `<div class="card tw"><table class="tbl" style="min-width:560px"><thead><tr><th>N°</th><th>Demandeur</th><th>Agence</th><th>Préparé le</th><th></th></tr></thead><tbody>${prets.map((d) => `<tr><td class="mono">${esc(daNum(d.id))}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${dfr(d.valide_le)}</td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="card empty"><p>Aucun carton en attente.</p></div>');
+  },
+
   traiter() {
     const carte = (d, boutons) => `<section class="card pad" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
       <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}${d.lignes.some((l) => l.qte_recue > 0) ? ' · <b>reçue partiellement</b>' : ''}</span></div>
@@ -206,7 +234,7 @@ const VIEWS = {
   },
 
   stats() {
-    const act = S.demandes.filter((d) => d.statut !== 'refusee');
+    const act = S.demandes.filter((d) => !['refusee', 'tri'].includes(d.statut) && !estBesoin(d));
     const tot = act.reduce((t, d) => t + totalDA(d), 0);
     const cards = S.fourn.map((f) => {
       const list = act.filter((d) => d.fournisseur_id === f.id);
@@ -369,8 +397,10 @@ function lignesProduitsAdmin() {
 function openDoc(id) {
   const d = S.demandes.find((x) => x.id === id);
   if (!d) return;
-  const ok = d.statut === 'validee' || d.statut === 'everwin';
-  const visa = ok && d.n1_id
+  const ok = d.statut === 'validee' || d.statut === 'everwin' || (d.statut === 'recue' && !estBesoin(d));
+  const visa = estBesoin(d) ? '<span class="mut" style="font-style:italic">Servi sur stock général</span>'
+    : d.statut === 'tri' ? '<span class="mut" style="font-style:italic">Chez le responsable achats</span>'
+    : ok && d.n1_id
     ? `<span class="sig">${esc(nomDe(d.n1_id))}</span><span>${dfr(d.valide_le)}</span>`
     : `<span class="mut" style="font-style:italic">${ok ? '' : d.statut === 'refusee' ? 'Refusée' : 'En attente de validation'}</span>`;
   const x = d.details || {};
@@ -455,6 +485,19 @@ const ACTIONS = {
     await loadAll(); render(); toast('Marquée comme saisie sur Everwin.');
   },
   reception: (k) => openReception(Number(k)),
+  trier: async (k, d) => {
+    const { error } = await sb.rpc('trier_demande', { p_id: Number(k), p_mode: d });
+    if (error) throw error;
+    if (d === 'da') notifier({ type: 'soumise', ids: [Number(k)] });
+    await loadAll(); render();
+    toast(d === 'da' ? 'Envoyée au N+1 pour validation.' : 'Ajoutée aux besoins à préparer.');
+  },
+  cocher: async (k, d) => {
+    const { data, error } = await sb.rpc('cocher_ligne', { p_ligne: Number(k), p_ok: d === '1' });
+    if (error) { render(); throw error; }
+    await loadAll(); render();
+    if (data === 'preparee') toast('Carton complet : déduit du stock général, le demandeur peut réceptionner.');
+  },
   delDA: async (k) => {
     if (!confirm('Supprimer définitivement la demande ' + daNum(k) + ' ? Cette action est irréversible.')) return;
     const { error, count } = await sb.from('demandes').delete({ count: 'exact' }).eq('id', Number(k));
@@ -499,9 +542,8 @@ const FORMS = {
     const { data: ids, error } = await sb.rpc('creer_demandes', { p_agence: fd.get('agence'), p_commentaire: fd.get('commentaire'), p_items: items });
     if (error) throw error;
     cart = {}; saveCart();
-    notifier({ type: 'soumise', ids });
     await loadAll(); S.screen = 'demandes'; render();
-    toast(ids.length > 1 ? ids.length + ' demandes envoyées à ton N+1.' : 'Demande envoyée à ton N+1.');
+    toast(ids.length > 1 ? ids.length + ' demandes envoyées au responsable achats.' : 'Demande envoyée au responsable achats.');
   },
   async user(fd) {
     const row = { nom: fd.get('nom').trim(), role: fd.get('role'), agence: fd.get('agence'), n1_id: fd.get('n1_id') || null };
