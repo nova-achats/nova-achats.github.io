@@ -13,7 +13,7 @@ const saveCart = () => { try { localStorage.setItem('panier', JSON.stringify(car
 const NAV = {
   technicien: ['catalogue', 'panier', 'demandes'],
   n1: ['validation', 'demandes', 'stats', 'catalogue', 'panier'],
-  assistance: ['prestation', 'catalogue', 'panier', 'demandes'],
+  assistance: ['prestation', 'catalogue', 'panier', 'demandes', 'stats'],
   admin: ['tri', 'besoins', 'traiter', 'demandes', 'stats', 'catalogue', 'panier', 'prestation', 'admin']
 };
 const LABEL = { catalogue: 'Catalogue', panier: 'Panier', prestation: 'Demande d’achat', demandes: 'Demandes', validation: 'À valider', tri: 'À trier', besoins: 'Besoins', traiter: 'À saisir Everwin', stats: 'Stats fournisseurs', admin: 'Administration' };
@@ -54,7 +54,7 @@ function toast(msg, err) {
 function fail(e) { console.error(e); toast((e && e.message) || String(e), true); }
 async function fnErr(e) { try { const j = await e.context.json(); return new Error(j.error || e.message); } catch (_) { return e; } }
 function notifier(body) {
-  if (!C.MAILS) return;
+  if (!C.NOTIFS) return;
   sb.functions.invoke('notify', { body }).then(async ({ error }) => {
     if (error) toast('Enregistré, mais le mail n’est pas parti : ' + (await fnErr(error)).message, true);
   });
@@ -269,7 +269,7 @@ const VIEWS = {
     (S.envois || []).forEach((e) => { const v = P(e.user_id); v.e++; if (e.urgent) v.u++; });
     const pers = Object.entries(parPers).sort((a, b) => b[1].u - a[1].u || b[1].m - a[1].m)
       .map(([id, v]) => `<tr><td><b>${esc(nomDe(id))}</b></td><td>${v.e}</td><td>${v.u ? `<b style="color:#B42318">${v.u}</b> <span class="mut">(${Math.round((v.u / v.e) * 100)} %)</span>` : '0'}</td><td>${v.n}</td><td class="nw"><b>${eur(v.m)}</b></td><td class="nw">${v.n ? eur(v.m / v.n) : '—'}</td></tr>`).join('');
-    const perim = S.me.role === 'admin' ? 'toutes les demandes' : 'tes demandes et celles de ton équipe';
+    const perim = S.me.role === 'admin' ? 'toutes les demandes' : S.me.role === 'n1' ? 'tes demandes et celles de ton équipe' : 'tes demandes';
     return `<div><h1>Fournisseurs</h1><p class="mut" style="margin:0">Calculé sur ${perim}, validées et en attente (hors refusées).</p></div>
       <div class="kpis"><div class="card kpi"><span class="mut">Montant total commandé</span><b>${eur(tot)}</b></div><div class="card kpi"><span class="mut">Demandes d'achat</span><b>${act.length}</b></div><div class="card kpi"><span class="mut">Montant moyen par demande</span><b>${act.length ? eur(tot / act.length) : '—'}</b></div></div>
       <div class="fgrid">${cards || '<div class="card empty"><p>Aucune dépense pour le moment.</p></div>'}</div>
@@ -554,7 +554,7 @@ const ACTIONS = {
     if (!ok && !confirm('Refuser cette demande ?')) return;
     const { error } = await sb.rpc('valider_demande', { p_id: Number(k), p_ok: ok });
     if (error) throw error;
-    notifier({ type: ok ? 'validee' : 'refusee', id: Number(k) });
+    notifier({ type: ok ? 'validee' : 'refusee', ids: [Number(k)] });
     await loadAll(); render();
     toast(ok ? 'Demande validée.' : 'Demande refusée.');
   },
@@ -577,9 +577,11 @@ const ACTIONS = {
     toast([achat && achat + ' article(s) envoyé(s) au N+1', stock.length && stock.length + ' article(s) dans la fiche besoin'].filter(Boolean).join(' · ') + '.');
   },
   cocher: async (k, d) => {
+    const dem = S.demandes.find((x) => x.lignes.some((l) => String(l.id) === k));
     const { data, error } = await sb.rpc('cocher_ligne', { p_ligne: Number(k), p_ok: d === '1' });
     if (error) { render(); throw error; }
     await loadAll(); render();
+    if (data === 'preparee' && dem) notifier({ type: 'preparee', ids: [dem.id] });
     if (data === 'preparee') toast('Carton complet : déduit du stock général, le demandeur peut réceptionner.');
   },
   delDA: async (k) => {
@@ -626,6 +628,7 @@ const FORMS = {
     const { data: ids, error } = await sb.rpc('creer_demandes', { p_agence: fd.get('agence'), p_commentaire: fd.get('commentaire'), p_items: items, p_urgent: fd.get('urgent') === 'on' });
     if (error) throw error;
     cart = {}; saveCart();
+    notifier({ type: 'panier', ids });
     await loadAll(); S.screen = 'demandes'; render();
     toast(ids.length > 1 ? ids.length + ' demandes envoyées au responsable achats.' : 'Demande envoyée au responsable achats.');
   },

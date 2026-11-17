@@ -3,6 +3,7 @@ window.CONFIG = {
   SUPABASE_ANON_KEY: "sb_publishable_kwxiG_dlNriROFYdH8lwfQ_ilTRk_JT",
 
   MAILS: false,
+  NOTIFS: true,
 
   NOM_SOCIETE: "Groupe NOVA",
   TITRE: "NOVA",
