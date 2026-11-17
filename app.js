@@ -21,6 +21,14 @@ const STATUT = { tri: ['Chez le resp. achats', 'b-wait'], besoin: ['En préparat
 const statutDe = (d) => (['validee', 'everwin', 'preparee'].includes(d.statut) && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
 const recevable = (d) => d.type !== 'prestation' && ['validee', 'everwin', 'preparee'].includes(d.statut);
 const estBesoin = (d) => d.statut === 'besoin' || (d.lignes.length > 0 && d.lignes.every((l) => l.prepare));
+const URG = (d) => (d.urgent ? '<span class="badge b-ko">URGENT</span> ' : '');
+function prochainEnvoi() {
+  const j = Number(S.me.delai_jours) || 0;
+  const der = (S.envois || []).find((e) => e.user_id === S.me.id && !e.urgent);
+  if (!j || !der) return null;
+  const t = new Date(new Date(der.created_at).getTime() + j * 864e5);
+  return t > new Date() ? t : null;
+}
 const ROLE = { technicien: 'Technicien', n1: 'N+1', admin: 'Admin', assistance: 'Assistance technique' };
 
 /* ---------- utilitaires ---------- */
@@ -59,13 +67,14 @@ async function loadAll() {
     sb.from('fournisseurs').select('*').order('nom'),
     sb.from('agences').select('nom').order('nom'),
     sb.from('produits').select('*').order('nom'),
-    sb.from('demandes').select('*, lignes(*)').order('id', { ascending: false })
+    sb.from('demandes').select('*, lignes(*)').order('id', { ascending: false }),
+    sb.from('envois').select('*').order('id', { ascending: false })
   ]);
   r.forEach((x) => { if (x.error) throw x.error; });
   r.forEach((x) => { if (x.error) throw x.error; });
   S.agences = r[2].data.map((a) => a.nom);
   r.splice(2, 1);
-  [S.profils, S.fourn, S.produits, S.demandes] = r.map((x) => x.data);
+  [S.profils, S.fourn, S.produits, S.demandes, S.envois] = r.map((x) => x.data);
   S.me = S.profils.find((p) => p.id === S.me.id) || S.me;
 }
 
@@ -171,6 +180,8 @@ const VIEWS = {
         <label>Agence<select name="agence">${opts(S.agences, S.me.agence)}</select></label>
         <label>Commentaire<textarea name="commentaire" rows="3" placeholder="Ex. réassort chantier, dotation EPI…"></textarea></label>
         <div class="row"><span class="mut">Valideur</span><b>${esc(n1)}</b></div>
+        ${S.me.delai_jours ? `<p class="mut" style="margin:0;font-size:13px">Tu peux envoyer ton panier une fois tous les ${S.me.delai_jours} jours.${prochainEnvoi() ? ` <b style="color:#B42318">Prochain envoi possible le ${prochainEnvoi().toLocaleDateString('fr-FR')} à ${prochainEnvoi().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.</b>` : ''}</p>` : ''}
+        <label style="flex-direction:row;align-items:center;gap:8px;font-weight:600;color:#B42318"><input type="checkbox" name="urgent" style="width:18px;height:18px"> Besoin urgent</label>
         <button class="btn primary" type="submit">Envoyer la demande</button>
       </form></div>`;
   },
@@ -179,7 +190,7 @@ const VIEWS = {
     if (!S.demandes.length) return `<h1>Demandes d'achat</h1><div class="card empty"><p>Aucune demande pour l’instant.</p></div>`;
     return `<h1>Demandes d'achat</h1><div class="card tw"><table class="tbl" style="min-width:920px">
       <thead><tr><th>N°</th><th>Date</th><th>Demandeur</th><th>Agence</th><th>Fournisseur</th><th>Montant HT</th><th>Statut</th><th>DA</th></tr></thead><tbody>
-      ${S.demandes.map((d) => `<tr><td class="mono nw">${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${recevable(d) && (d.demandeur_id === S.me.id || S.me.role === 'admin') ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
+      ${S.demandes.map((d) => `<tr><td class="mono nw">${URG(d)}${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${recevable(d) && (d.demandeur_id === S.me.id || S.me.role === 'admin') ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
 
@@ -188,7 +199,7 @@ const VIEWS = {
     const head = `<div><h1>Demandes à valider</h1><p class="mut" style="margin:0">Une fois validée, la demande part chez le responsable achats pour saisie du bon de commande sur Everwin.</p></div>`;
     if (!list.length) return head + `<div class="card empty"><p>Rien à valider pour le moment.</p></div>`;
     return head + list.map((d) => `<section class="card">
-      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">Demandé par ${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
+      <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">Demandé par ${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
       <div class="tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th></tr></thead><tbody>
       ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td></tr>`).join('')}</tbody></table></div>
       <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir la DA</button><button class="btn ko" data-a="decide" data-k="${d.id}" data-d="0">Refuser</button><button class="btn ok" data-a="decide" data-k="${d.id}" data-d="1">Valider</button></div>
@@ -200,7 +211,7 @@ const VIEWS = {
     const head = `<div><h1>Demandes à trier</h1><p class="mut" style="margin:0">Pour chaque article : <b>Achat</b> = part dans la DA chez le N+1, <b>Stock</b> = tu l’as en stock général, ça va dans la fiche besoin de la personne.</p></div>`;
     if (!list.length) return head + `<div class="card empty"><p>Rien à trier.</p></div>`;
     return head + list.map((d) => `<section class="card">
-      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
+      <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))}</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · N+1 ${esc(nomDe(d.n1_id))}${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><b style="font-size:20px">${eur(totalDA(d))}</b></div>
       <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Qté</th><th>PU HT</th><th>Total HT</th><th>Où ?</th></tr></thead><tbody>
       ${d.lignes.map((l) => { const st = !!S.triStock[l.id]; return `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td class="nw">${eur(l.pu)}</td><td class="nw"><b>${eur(l.qte * l.pu)}</b></td><td class="nw"><button class="btn ${st ? '' : 'primary'}" data-a="triLigne" data-k="${l.id}" data-d="0">Achat</button> <button class="btn ${st ? 'primary' : ''}" data-a="triLigne" data-k="${l.id}" data-d="1">Stock</button></td></tr>`; }).join('')}</tbody></table></div>
       <div class="acts"><button class="btn" style="margin-right:auto" data-a="doc" data-k="${d.id}">Voir</button><button class="btn primary" data-a="trier" data-k="${d.id}">Valider le tri</button></div>
@@ -212,7 +223,7 @@ const VIEWS = {
     const prets = S.demandes.filter((d) => d.statut === 'preparee');
     const head = `<div><h1>Besoins à préparer</h1><p class="mut" style="margin:0">Coche au fur et à mesure que tu remplis le carton. Quand tout est coché, c’est déduit du stock général et le demandeur peut réceptionner.</p></div>`;
     const cartes = list.length ? list.map((d) => `<section class="card">
-      <div class="gh"><div><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}</b><span class="mut">${d.lignes.filter((l) => l.prepare).length} / ${d.lignes.length} articles dans le carton${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><button class="btn" data-a="doc" data-k="${d.id}">Fiche</button></div>
+      <div class="gh"><div><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)}</b><span class="mut">${d.lignes.filter((l) => l.prepare).length} / ${d.lignes.length} articles dans le carton${d.commentaire ? ' · ' + esc(d.commentaire) : ''}</span></div><button class="btn" data-a="doc" data-k="${d.id}">Fiche</button></div>
       <div class="tw"><table class="tbl" style="min-width:420px"><thead><tr><th style="width:60px">Carton</th><th>Désignation</th><th>Qté</th></tr></thead><tbody>
       ${d.lignes.map((l) => `<tr style="${l.prepare ? 'opacity:.55' : ''}"><td><input type="checkbox" style="width:20px;height:20px" data-a="cocher" data-k="${l.id}" data-d="${l.prepare ? 0 : 1}" ${l.prepare ? 'checked' : ''} aria-label="Dans le carton"></td><td>${l.prepare ? `<s>${esc(l.designation)}</s>` : esc(l.designation)}${(prodDe(l.produit_id) || {}).ref ? `<br><span class="ref">${esc(prodDe(l.produit_id).ref)}</span>` : ''}</td><td><b>${l.qte}</b></td></tr>`).join('')}</tbody></table></div>
     </section>`).join('') : '<div class="card empty"><p>Aucun besoin à préparer.</p></div>';
@@ -222,7 +233,7 @@ const VIEWS = {
 
   traiter() {
     const carte = (d, boutons) => `<section class="card pad" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
-      <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}${d.lignes.some((l) => l.qte_recue > 0) ? ' · <b>reçue partiellement</b>' : ''}</span></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${URG(d)}${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}${d.lignes.some((l) => l.qte_recue > 0) ? ' · <b>reçue partiellement</b>' : ''}</span></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button>${boutons}</div>
     </section>`;
     const aSaisir = S.demandes.filter((d) => d.statut === 'validee');
@@ -250,14 +261,16 @@ const VIEWS = {
         <div style="padding-top:10px;border-top:1px solid var(--line2);font-size:13px"><span class="mut">Article le plus commandé : </span>${top ? esc(top[0]) + ' (' + top[1] + ')' : '—'}</div></section>` };
     }).filter((x) => S.me.role === 'admin' || x.m > 0).sort((a, b) => b.m - a.m).map((x) => x.html).join('');
     const parPers = {};
-    act.forEach((d) => { const k = d.demandeur_id; parPers[k] = parPers[k] || { n: 0, m: 0 }; parPers[k].n++; parPers[k].m += totalDA(d); });
-    const pers = Object.entries(parPers).sort((a, b) => b[1].m - a[1].m)
-      .map(([id, v]) => `<tr><td><b>${esc(nomDe(id))}</b></td><td>${v.n}</td><td class="nw"><b>${eur(v.m)}</b></td><td class="nw">${eur(v.m / v.n)}</td></tr>`).join('');
+    const P = (k) => (parPers[k] = parPers[k] || { n: 0, m: 0, e: 0, u: 0 });
+    act.forEach((d) => { const v = P(d.demandeur_id); v.n++; v.m += totalDA(d); });
+    (S.envois || []).forEach((e) => { const v = P(e.user_id); v.e++; if (e.urgent) v.u++; });
+    const pers = Object.entries(parPers).sort((a, b) => b[1].u - a[1].u || b[1].m - a[1].m)
+      .map(([id, v]) => `<tr><td><b>${esc(nomDe(id))}</b></td><td>${v.e}</td><td>${v.u ? `<b style="color:#B42318">${v.u}</b> <span class="mut">(${Math.round((v.u / v.e) * 100)} %)</span>` : '0'}</td><td>${v.n}</td><td class="nw"><b>${eur(v.m)}</b></td><td class="nw">${v.n ? eur(v.m / v.n) : '—'}</td></tr>`).join('');
     const perim = S.me.role === 'admin' ? 'toutes les demandes' : 'tes demandes et celles de ton équipe';
     return `<div><h1>Fournisseurs</h1><p class="mut" style="margin:0">Calculé sur ${perim}, validées et en attente (hors refusées).</p></div>
       <div class="kpis"><div class="card kpi"><span class="mut">Montant total commandé</span><b>${eur(tot)}</b></div><div class="card kpi"><span class="mut">Demandes d'achat</span><b>${act.length}</b></div><div class="card kpi"><span class="mut">Montant moyen par demande</span><b>${act.length ? eur(tot / act.length) : '—'}</b></div></div>
       <div class="fgrid">${cards || '<div class="card empty"><p>Aucune dépense pour le moment.</p></div>'}</div>
-      ${pers ? `<h2 style="margin-top:8px">Par personne</h2><div class="card tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Demandeur</th><th>Demandes</th><th>Montant HT</th><th>Moyenne / demande</th></tr></thead><tbody>${pers}</tbody></table></div>` : ''}`;
+      ${pers ? `<h2 style="margin-top:8px">Par personne</h2><div class="card tw"><table class="tbl" style="min-width:480px"><thead><tr><th>Demandeur</th><th>Paniers envoyés</th><th>Dont urgents</th><th>DA</th><th>Montant HT</th><th>Moyenne / DA</th></tr></thead><tbody>${pers}</tbody></table></div>` : ''}`;
   },
 
   prestation() {
@@ -344,10 +357,11 @@ const ADMIN = {
       <label>Rôle<select name="role">${opts([['technicien', 'Technicien (demandeur)'], ['n1', 'N+1 (valideur)'], ['assistance', 'Assistance technique'], ['admin', 'Admin / resp. logistique']], u ? u.role : 'technicien')}</select></label>
       <label>Agence<select name="agence">${opts(S.agences, u && u.agence)}</select></label>
       <label>N+1 qui valide ses demandes<select name="n1_id"><option value="">— Aucun —</option>${opts(valideurs, u && u.n1_id)}</select></label>
+      <label>Envoi du panier : 1 fois tous les … jours (0 = sans limite)<input name="delai_jours" type="number" min="0" step="1" value="${u ? u.delai_jours || 0 : 7}"></label>
       <button class="btn primary" type="submit">${u ? 'Enregistrer' : (C.MAILS ? 'Créer le compte et envoyer l’invitation' : 'Créer le compte')}</button>
       ${u ? '<button class="link" type="button" data-a="cancel">Annuler</button>' : ''}
-    </form><div class="card grow tw"><table class="tbl" style="min-width:640px"><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Agence</th><th>N+1</th><th><span class="sr">Action</span></th></tr></thead><tbody>
-      ${S.profils.map((p) => `<tr><td><b>${esc(p.nom)}</b></td><td>${esc(p.email)}</td><td>${ROLE[p.role]}</td><td>${esc(p.agence || '—')}</td><td>${p.n1_id ? esc(nomDe(p.n1_id)) : '—'}</td><td><button class="link" data-a="edit" data-k="${p.id}">Modifier</button></td></tr>`).join('')}
+    </form><div class="card grow tw"><table class="tbl" style="min-width:640px"><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Agence</th><th>N+1</th><th>Panier</th><th><span class="sr">Action</span></th></tr></thead><tbody>
+      ${S.profils.map((p) => `<tr><td><b>${esc(p.nom)}</b></td><td>${esc(p.email)}</td><td>${ROLE[p.role]}</td><td>${esc(p.agence || '—')}</td><td>${p.n1_id ? esc(nomDe(p.n1_id)) : '—'}</td><td class="nw">${p.delai_jours ? 'tous les ' + p.delai_jours + ' j' : 'libre'}</td><td><button class="link" data-a="edit" data-k="${p.id}">Modifier</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
   },
 
@@ -424,7 +438,7 @@ function openDoc(id) {
         ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td class="c">${l.qte}</td><td class="r">${eur(l.pu)}</td><td></td><td class="r g">${eur(l.qte * l.pu)}</td><td>${esc(l.rubrique || '')}</td><td class="c">${dfr(l.date_livraison)}</td><td>${esc(l.lieu || d.agence || '')}</td><td></td></tr>`).join('')}
         ${'<tr><td>&nbsp;</td><td></td><td></td><td></td><td class="r g">0,00 €</td><td></td><td></td><td></td><td></td></tr>'.repeat(vides)}
         <tr><td colspan="4" class="r"><b>MONTANT TOTAL :</b></td><td class="r g"><b>${eur(totalDA(d))}</b></td><td colspan="4"></td></tr></tbody></table>
-      <div class="foot"><div><b>Commentaires :</b><span style="white-space:pre-line">${esc([d.commentaire, ...infos].filter(Boolean).join('\n'))}</span></div>
+      <div class="foot"><div><b>Commentaires :</b><span style="white-space:pre-line">${esc([d.urgent && 'BESOIN URGENT', d.commentaire, ...infos].filter(Boolean).join('\n'))}</span></div>
         <div><b>Visa et date demandeur :</b><span class="sig">${esc(nomDe(d.demandeur_id))}</span><span>${dfr(d.created_at)}</span></div>
         <div><b>Visa et date responsable :</b>${visa}</div></div>
     </div></div></div>`;
@@ -455,7 +469,7 @@ function openFiche(d) {
       <table><thead><tr><th style="text-align:left">Désignation</th><th>Référence</th><th>Qté</th><th>Dans le carton</th><th>Reçu</th></tr></thead><tbody>
         ${d.lignes.map((l) => `<tr><td>${esc(l.designation)}</td><td class="c">${esc((prodDe(l.produit_id) || {}).ref || '')}</td><td class="c"><b>${l.qte}</b></td><td class="c">${l.prepare ? '✔' : '☐'}</td><td class="c">${l.qte_recue ? l.qte_recue : '☐'}</td></tr>`).join('')}
       </tbody></table>
-      <div class="foot"><div><b>Commentaires :</b><span style="white-space:pre-line">${esc(d.commentaire || '')}</span></div>
+      <div class="foot"><div><b>Commentaires :</b><span style="white-space:pre-line">${esc([d.urgent && 'BESOIN URGENT', d.commentaire].filter(Boolean).join('\n'))}</span></div>
         <div><b>Préparé le :</b><span>${d.statut === 'besoin' ? '' : dfr(d.valide_le)}</span></div>
         <div><b>Statut :</b><span>${esc(statutDe(d)[0])}</span></div></div>
     </div></div></div>`;
@@ -562,7 +576,7 @@ const FORMS = {
   },
   async envoyer(fd) {
     const items = Object.entries(cart).map(([k, q]) => { const [id, t] = k.split('|'); return { produit_id: Number(id), taille: t, qte: q }; });
-    const { data: ids, error } = await sb.rpc('creer_demandes', { p_agence: fd.get('agence'), p_commentaire: fd.get('commentaire'), p_items: items });
+    const { data: ids, error } = await sb.rpc('creer_demandes', { p_agence: fd.get('agence'), p_commentaire: fd.get('commentaire'), p_items: items, p_urgent: fd.get('urgent') === 'on' });
     if (error) throw error;
     cart = {}; saveCart();
     await loadAll(); S.screen = 'demandes'; render();
@@ -570,8 +584,9 @@ const FORMS = {
   },
   async user(fd) {
     const row = { nom: fd.get('nom').trim(), role: fd.get('role'), agence: fd.get('agence'), n1_id: fd.get('n1_id') || null };
+    const delai_jours = Math.max(0, parseInt(fd.get('delai_jours'), 10) || 0);
     if (S.edit) {
-      const { error } = await sb.from('profiles').update(row).eq('id', S.edit);
+      const { error } = await sb.from('profiles').update({ ...row, delai_jours }).eq('id', S.edit);
       if (error) throw error;
       toast('Compte modifié.');
     } else {
@@ -579,6 +594,7 @@ const FORMS = {
       const password = C.MAILS ? undefined : fd.get('password');
       const { error } = await sb.functions.invoke('invite-user', { body: { ...row, email, password, redirect: location.origin + location.pathname } });
       if (error) throw await fnErr(error);
+      await sb.from('profiles').update({ delai_jours }).eq('email', email);
       toast(C.MAILS ? 'Invitation envoyée à ' + email + '.' : 'Compte créé. Donne à ' + row.nom + ' son email et son mot de passe provisoire.');
     }
     S.edit = null; await loadAll(); render();
