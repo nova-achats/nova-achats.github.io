@@ -345,7 +345,7 @@ const VIEWS = {
   },
 
   admin() {
-    const tabs = [['users', 'Utilisateurs'], ['produits', 'Produits'], ['fournisseurs', 'Fournisseurs'], ['agences', 'Agences']]
+    const tabs = [['users', 'Utilisateurs'], ['produits', 'Produits'], ['fournisseurs', 'Fournisseurs'], ['agences', 'Agences'], ['export', 'Export']]
       .map(([k, l]) => `<button class="tab ${S.adminTab === k ? 'on' : ''}" role="tab" aria-selected="${S.adminTab === k}" data-a="tab" data-k="${k}">${l}</button>`).join('');
     return `<h1>Administration</h1><div class="tabs" role="tablist">${tabs}</div>${ADMIN[S.adminTab]()}`;
   }
@@ -371,6 +371,16 @@ function gridHtml() {
 
 /* ---------- administration ---------- */
 const ADMIN = {
+  export() {
+    const t = new Date(), j = (d) => d.toISOString().slice(0, 10);
+    const du = j(new Date(t.getFullYear(), t.getMonth() - 1, 1)), au = j(new Date(t.getFullYear(), t.getMonth(), 0));
+    return `<form class="card pad stack" data-form="export" style="max-width:620px">
+      <p class="mut" style="margin:0">Télécharge toutes les demandes d’une période dans un fichier Excel (onglet « DA » + onglet « Lignes »), à ranger sur le réseau pour la traçabilité. Par défaut : le mois dernier.</p>
+      <div class="two"><label>Du<input name="du" type="date" value="${du}" required></label><label>Au<input name="au" type="date" value="${au}" required></label></div>
+      <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="refusees" checked style="width:16px;height:16px;flex:none"> Inclure les demandes refusées</label>
+      <div><button class="btn primary" type="submit">Exporter en Excel</button></div>
+    </form>`;
+  },
   agences() {
     return `<div class="cols"><form class="card side2 stack" data-form="agence">
       <h2>Ajouter une agence</h2>
@@ -721,6 +731,34 @@ const FORMS = {
     const { error } = await sb.rpc('recevoir', { p_demande: Number(fd.get('demande')), p_items: items });
     if (error) throw error;
     closeDoc(); await loadAll(); render(); toast('Réception enregistrée. Le stock Excel de l’agence sera mis à jour à sa prochaine ouverture.');
+  },
+  async export(fd) {
+    const du = fd.get('du'), au = fd.get('au');
+    const list = S.demandes.filter((d) => { const c = d.created_at.slice(0, 10); return c >= du && c <= au && (fd.get('refusees') || d.statut !== 'refusee'); })
+      .sort((a, b) => a.id - b.id);
+    if (!list.length) throw new Error('Aucune demande sur cette période.');
+    if (!window.XLSX) await new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => ko(new Error('Impossible de charger le module Excel.')); document.head.append(sc); });
+    const TYPE = { catalogue: 'Catalogue', prestation: 'Prestation', speciale: 'Spéciale (devis)' };
+    const dt = (v) => (v ? new Date(v) : null);
+    const da = list.map((d) => ({
+      'N° DA': daNum(d.id), 'Date': dt(d.created_at), 'Type': estBesoin(d) ? 'Besoin (stock général)' : (TYPE[d.type] || d.type), 'Urgent': d.urgent ? 'OUI' : '',
+      'Demandeur': nomDe(d.demandeur_id), 'N+1': d.n1_id ? nomDe(d.n1_id) : '', 'Agence': d.agence || '', 'Fournisseur': fournD(d),
+      'N° affaire': d.n_affaire || '', 'N° devis': d.devis_num || (d.devis_path ? 'joint' : ''), 'Statut': statutDe(d)[0],
+      'Validée / préparée le': dt(d.valide_le), 'Nb lignes': d.lignes.length, 'Montant HT': Math.round(totalDA(d) * 100) / 100,
+      'Reçu': d.lignes.length && d.lignes.every((l) => l.qte_recue >= l.qte) ? 'Total' : d.lignes.some((l) => l.qte_recue > 0) ? 'Partiel' : '', 'Commentaire': d.commentaire || ''
+    }));
+    const lignes = list.flatMap((d) => d.lignes.map((l) => ({
+      'N° DA': daNum(d.id), 'Date': dt(d.created_at), 'Demandeur': nomDe(d.demandeur_id), 'Agence': d.agence || '', 'Fournisseur': fournD(d),
+      'Référence': (prodDe(l.produit_id) || {}).ref || '', 'Désignation': l.designation, 'Qté': l.qte, 'PU HT': Number(l.pu), 'Total HT': Math.round(l.qte * l.pu * 100) / 100,
+      'Qté reçue': l.qte_recue || 0, 'Rubrique': l.rubrique || '', 'Statut DA': statutDe(d)[0]
+    })));
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(da, { cellDates: true }), ws2 = XLSX.utils.json_to_sheet(lignes, { cellDates: true });
+    ws1['!cols'] = [12, 11, 20, 8, 20, 20, 12, 22, 12, 12, 24, 14, 9, 12, 9, 40].map((w) => ({ wch: w }));
+    ws2['!cols'] = [12, 11, 20, 12, 22, 14, 50, 6, 10, 12, 9, 28, 24].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws1, 'DA'); XLSX.utils.book_append_sheet(wb, ws2, 'Lignes');
+    XLSX.writeFile(wb, `DA_${du}_au_${au}.xlsx`, { cellDates: true });
+    toast(list.length + ' demande(s) exportée(s).');
   },
   async speciale(fd) {
     const d_ = fd.getAll('l_designation'), q_ = fd.getAll('l_qte'), p_ = fd.getAll('l_pu');
