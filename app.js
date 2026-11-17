@@ -17,7 +17,9 @@ const NAV = {
   admin: ['traiter', 'demandes', 'stats', 'catalogue', 'panier', 'prestation', 'admin']
 };
 const LABEL = { catalogue: 'Catalogue', panier: 'Panier', prestation: 'Demande d’achat', demandes: 'Demandes', validation: 'À valider', traiter: 'À saisir Everwin', stats: 'Stats fournisseurs', admin: 'Administration' };
-const STATUT = { attente: ['En attente N+1', 'b-wait'], validee: ['Validée · à saisir Everwin', 'b-ok'], everwin: ['BC saisi Everwin', 'b-done'], refusee: ['Refusée', 'b-ko'] };
+const STATUT = { attente: ['En attente N+1', 'b-wait'], validee: ['Validée · à saisir Everwin', 'b-ok'], everwin: ['BC saisi Everwin', 'b-done'], refusee: ['Refusée', 'b-ko'], recue: ['Reçue', 'b-done'] };
+const statutDe = (d) => ((d.statut === 'validee' || d.statut === 'everwin') && d.lignes.some((l) => l.qte_recue > 0)) ? ['Reçue partiellement', 'b-ok'] : STATUT[d.statut];
+const recevable = (d) => d.type !== 'prestation' && (d.statut === 'validee' || d.statut === 'everwin');
 const ROLE = { technicien: 'Technicien', n1: 'N+1', admin: 'Admin', assistance: 'Assistance technique' };
 
 /* ---------- utilitaires ---------- */
@@ -174,7 +176,7 @@ const VIEWS = {
     if (!S.demandes.length) return `<h1>Demandes d'achat</h1><div class="card empty"><p>Aucune demande pour l’instant.</p></div>`;
     return `<h1>Demandes d'achat</h1><div class="card tw"><table class="tbl" style="min-width:920px">
       <thead><tr><th>N°</th><th>Date</th><th>Demandeur</th><th>Agence</th><th>Fournisseur</th><th>Montant HT</th><th>Statut</th><th>DA</th></tr></thead><tbody>
-      ${S.demandes.map((d) => `<tr><td class="mono nw">${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${STATUT[d.statut][1]}">${STATUT[d.statut][0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
+      ${S.demandes.map((d) => `<tr><td class="mono nw">${esc(daNum(d.id))}</td><td class="nw">${dfr(d.created_at)}</td><td>${esc(nomDe(d.demandeur_id))}</td><td>${esc(d.agence)}</td><td>${esc(fournD(d))}</td><td class="nw"><b>${eur(totalDA(d))}</b></td><td><span class="badge ${statutDe(d)[1]}">${statutDe(d)[0]}</span></td><td class="nw"><button class="btn" data-a="doc" data-k="${d.id}">Voir</button>${S.me.role === 'admin' && recevable(d) ? `<button class="btn" style="margin-left:6px" data-a="reception" data-k="${d.id}">Réception</button>` : ''}${S.me.role === 'admin' ? `<button class="link" style="color:#B42318;margin-left:6px" data-a="delDA" data-k="${d.id}">Supprimer</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
 
@@ -191,13 +193,16 @@ const VIEWS = {
   },
 
   traiter() {
-    const list = S.demandes.filter((d) => d.statut === 'validee');
-    const head = `<div><h1>DA validées à saisir sur Everwin</h1><p class="mut" style="margin:0">Ouvre la DA, saisis le bon de commande sur Everwin, puis marque-la comme saisie.</p></div>`;
-    if (!list.length) return head + `<div class="card empty"><p>Tout est saisi.</p></div>`;
-    return head + list.map((d) => `<section class="card pad" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
-      <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button><button class="btn primary" data-a="everwin" data-k="${d.id}">BC saisi sur Everwin</button></div>
-    </section>`).join('');
+    const carte = (d, boutons) => `<section class="card pad" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="mono mut">${esc(daNum(d.id))} · ${dfr(d.created_at)}</span><b style="font-size:17px">${esc(fournD(d))} · ${eur(totalDA(d))} HT</b><span class="mut">${esc(nomDe(d.demandeur_id))} · Agence ${esc(d.agence)} · ${d.n1_id ? 'validée par ' + esc(nomDe(d.n1_id)) + ' le ' + dfr(d.valide_le) : 'transmise directement le ' + dfr(d.valide_le)}${d.lignes.some((l) => l.qte_recue > 0) ? ' · <b>reçue partiellement</b>' : ''}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn" data-a="doc" data-k="${d.id}">Voir la DA</button>${boutons}</div>
+    </section>`;
+    const aSaisir = S.demandes.filter((d) => d.statut === 'validee');
+    const aRecevoir = S.demandes.filter((d) => d.statut === 'everwin' && recevable(d));
+    return `<div><h1>DA validées à saisir sur Everwin</h1><p class="mut" style="margin:0">Ouvre la DA, saisis le bon de commande sur Everwin, puis marque-la comme saisie.</p></div>
+      ${aSaisir.length ? aSaisir.map((d) => carte(d, `<button class="btn primary" data-a="everwin" data-k="${d.id}">BC saisi sur Everwin</button>`)).join('') : '<div class="card empty"><p>Tout est saisi.</p></div>'}
+      <div style="margin-top:12px"><h1>En attente de réception</h1><p class="mut" style="margin:0">Quand la marchandise arrive, clique sur « Réception » : le stock Excel de l'agence sera mis à jour.</p></div>
+      ${aRecevoir.length ? aRecevoir.map((d) => carte(d, `<button class="btn primary" data-a="reception" data-k="${d.id}">Réception</button>`)).join('') : '<div class="card empty"><p>Aucune commande en attente.</p></div>'}`;
   },
 
   stats() {
@@ -388,6 +393,20 @@ function openDoc(id) {
     </div></div></div>`;
   $('#modal').classList.add('show');
 }
+function openReception(id) {
+  const d = S.demandes.find((x) => x.id === id);
+  if (!d) return;
+  $('#modal').innerHTML = `<div class="mbox" role="dialog" aria-modal="true" aria-label="Réception">
+    <div class="mbar"><b>Réception · ${esc(daNum(d.id))} · ${esc(fournD(d))} · Agence ${esc(d.agence || '—')}</b><button class="btn" data-a="close">Fermer</button></div>
+    <form class="mbody stack" data-form="reception"><input type="hidden" name="demande" value="${d.id}">
+      <p class="mut" style="margin:0">Indique ce qui est arrivé. Tu peux réceptionner en plusieurs fois.</p>
+      <div class="tw"><table class="tbl" style="min-width:560px"><thead><tr><th>Désignation</th><th>Commandé</th><th>Déjà reçu</th><th>Reçu maintenant</th></tr></thead><tbody>
+      ${d.lignes.map((l) => { const reste = l.qte - (l.qte_recue || 0); return `<tr><td>${esc(l.designation)}</td><td>${l.qte}</td><td>${l.qte_recue || 0}</td><td>${reste > 0 ? `<input type="number" name="q_${l.id}" min="0" max="${reste}" value="${reste}" style="width:110px" aria-label="Quantité reçue">` : '<span class="mut">complet</span>'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <button class="btn primary" type="submit" style="align-self:flex-start">Valider la réception</button>
+    </form></div>`;
+  $('#modal').classList.add('show');
+}
 function closeDoc() { $('#modal').classList.remove('show'); $('#modal').innerHTML = ''; }
 
 /* ---------- actions (clics) ---------- */
@@ -429,6 +448,7 @@ const ACTIONS = {
     if (error) throw error;
     await loadAll(); render(); toast('Marquée comme saisie sur Everwin.');
   },
+  reception: (k) => openReception(Number(k)),
   delDA: async (k) => {
     if (!confirm('Supprimer définitivement la demande ' + daNum(k) + ' ? Cette action est irréversible.')) return;
     const { error, count } = await sb.from('demandes').delete({ count: 'exact' }).eq('id', Number(k));
@@ -508,6 +528,14 @@ const FORMS = {
     if (error) throw error;
     toast(S.edit ? 'Produit modifié.' : 'Produit ajouté au catalogue.');
     S.edit = null; await loadAll(); render();
+  },
+  async reception(fd) {
+    const items = [];
+    for (const [k, v] of fd.entries()) if (k.startsWith('q_') && Number(v) > 0) items.push({ ligne_id: Number(k.slice(2)), qte: Number(v) });
+    if (!items.length) throw new Error('Saisis au moins une quantité.');
+    const { error } = await sb.rpc('recevoir', { p_demande: Number(fd.get('demande')), p_items: items });
+    if (error) throw error;
+    closeDoc(); await loadAll(); render(); toast('Réception enregistrée. Le stock Excel de l’agence sera mis à jour à sa prochaine ouverture.');
   },
   async prestation(fd) {
     const p = Object.fromEntries(fd.entries());
