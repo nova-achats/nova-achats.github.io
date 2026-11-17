@@ -97,6 +97,9 @@ async function boot(user) {
   await loadAll();
   S.screen = NAV[me.role][0];
   render();
+  let vu = false, off = false;
+  try { vu = sessionStorage.getItem('tuto_vu') === me.id; off = localStorage.getItem('tuto_off_' + me.id) === '1'; } catch (e) {}
+  if (!vu && !off) openTuto();
 }
 
 function renderLogin() {
@@ -136,7 +139,7 @@ function render() {
   $('#app').innerHTML = `<header class="top">
       <div class="brand"><img src="${C.LOGO_BLANC}" alt="${esc(C.NOM_SOCIETE)}" style="height:34px;display:block"></div>
       <input type="search" id="q" class="topsearch" placeholder="Rechercher un article, une référence, un fournisseur…" value="${esc(S.search)}" aria-label="Rechercher dans le catalogue">
-      <div class="who">${esc(S.me.nom)} <span>· ${ROLE[S.me.role]}</span><button class="link light" data-a="logout">Déconnexion</button></div>
+      <div class="who">${esc(S.me.nom)} <span>· ${ROLE[S.me.role]}</span><button class="link light" data-a="tuto">Tuto</button><button class="link light" data-a="logout">Déconnexion</button></div>
       <nav aria-label="Navigation">${nav}</nav>
     </header><main class="wrap">${VIEWS[S.screen]()}</main>`;
 }
@@ -475,6 +478,48 @@ function openFiche(d) {
     </div></div></div>`;
   $('#modal').classList.add('show');
 }
+/* ---------- tuto ---------- */
+const TUTO_DEMANDEUR = [
+  ['Le catalogue', 'Cherche un article avec la barre de recherche en haut ou par catégorie, choisis la taille si besoin et ajoute-le au panier.'],
+  ['Le panier', 'Choisis ton agence, ajoute un commentaire si besoin et clique sur « Envoyer la demande ». Tu peux envoyer ton panier une fois par période (affichée dans le panier) : regroupe tes besoins.'],
+  ['Besoin urgent', 'Si ça ne peut vraiment pas attendre, coche « Besoin urgent » avant d’envoyer. Ça passe tout de suite, mais les urgences sont comptées et suivies par ton N+1.'],
+  ['Ce qui se passe ensuite', 'Le responsable achats regarde chaque article : s’il l’a en stock, il te prépare un carton. Sinon, il en fait une demande d’achat que ton N+1 valide avant la commande.'],
+  ['La réception', 'Dans « Demandes », tu suis où en est chaque demande. Quand tu reçois ton colis ou ton carton, clique sur « Réception » et indique ce qui est arrivé : le stock de ton agence est mis à jour tout seul.']
+];
+const TUTO = {
+  technicien: TUTO_DEMANDEUR,
+  assistance: [TUTO_DEMANDEUR[0], ['Demande d’achat', 'Pour une prestation ou un achat hors catalogue (sous-traitance, consultant…), utilise l’onglet « Demande d’achat » : remplis le fournisseur, l’affaire et les lignes, ça part en validation.'], ...TUTO_DEMANDEUR.slice(1)],
+  n1: [
+    ['À valider', 'Les demandes d’achat de ton équipe arrivent ici. Ouvre la DA si besoin, puis clique sur « Valider » ou « Refuser ». Une fois validée, elle part chez le responsable achats pour la commande.'],
+    ['Demandes', 'Tu y vois tes demandes et celles de ton équipe, avec leur statut. Les demandes urgentes ont un badge rouge URGENT.'],
+    ['Stats fournisseurs', 'Les dépenses de ton équipe par fournisseur et par personne, avec le nombre de paniers envoyés et d’urgences par personne : pratique pour repérer un souci d’organisation.'],
+    ['Commander pour toi', 'Tu peux aussi commander depuis le catalogue et le panier, comme ton équipe. Quand tu reçois, clique sur « Réception » dans « Demandes ».']
+  ],
+  admin: [
+    ['À trier', 'Chaque panier envoyé arrive ici. Pour chaque article, choisis « Achat » (ça part en DA chez le N+1) ou « Stock » (tu l’as au magasin), puis « Valider le tri ».'],
+    ['Besoins', 'Les articles « Stock » sont regroupés dans une fiche par personne, peu importe le fournisseur. Coche au fur et à mesure que tu remplis le carton : quand tout est coché, c’est déduit du stock général et la personne peut réceptionner.'],
+    ['À saisir Everwin', 'Les DA validées par les N+1 arrivent ici. Ouvre la DA, saisis le bon de commande sur Everwin puis clique sur « BC saisi sur Everwin ».'],
+    ['Réceptions', 'C’est la personne qui a commandé qui réceptionne depuis ses « Demandes ». Tu peux le faire à sa place si besoin. Chaque réception part dans le fichier Excel stock de l’agence.'],
+    ['Stats fournisseurs', 'Les dépenses par fournisseur et par personne, avec les paniers envoyés et les urgences.'],
+    ['Administration', 'Crée les comptes (rôle, agence, N+1, fréquence d’envoi du panier), les produits, les fournisseurs et les agences.']
+  ]
+};
+function openTuto(i = 0) {
+  try { sessionStorage.setItem('tuto_vu', S.me.id); } catch (e) {}
+  const steps = TUTO[S.me.role] || TUTO.technicien;
+  const [t, txt] = steps[i];
+  let off = false;
+  try { off = localStorage.getItem('tuto_off_' + S.me.id) === '1'; } catch (e) {}
+  $('#modal').innerHTML = `<div class="mbox" role="dialog" aria-modal="true" aria-label="Tuto" style="max-width:520px;margin-top:8vh">
+    <div class="mbar"><b>Bienvenue ${esc(S.me.nom.split(' ')[0])} · ${i + 1} / ${steps.length}</b><button class="btn" data-a="close">Passer</button></div>
+    <div class="mbody stack"><h2 style="font-size:20px">${esc(t)}</h2><p style="margin:0;line-height:1.55">${esc(txt)}</p>
+      <div style="display:flex;gap:6px">${steps.map((_, k) => `<span style="width:8px;height:8px;border-radius:50%;background:${k === i ? 'var(--accent, #C2410C)' : '#D6D6CF'}"></span>`).join('')}</div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-top:6px">
+        <label style="display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;font-weight:400;flex:1;min-width:180px"><input type="checkbox" style="width:16px;height:16px;flex:none" data-a="tutoOff" ${off ? 'checked' : ''}> Ne plus afficher à la connexion</label>
+        <div style="display:flex;gap:8px">${i > 0 ? `<button class="btn" data-a="tuto" data-k="${i - 1}">Précédent</button>` : ''}${i < steps.length - 1 ? `<button class="btn primary" data-a="tuto" data-k="${i + 1}">Suivant</button>` : '<button class="btn primary" data-a="close">C’est parti</button>'}</div>
+      </div></div></div>`;
+  $('#modal').classList.add('show');
+}
 function closeDoc() { $('#modal').classList.remove('show'); $('#modal').innerHTML = ''; }
 
 /* ---------- actions (clics) ---------- */
@@ -492,6 +537,8 @@ const ACTIONS = {
   edit: (k) => { S.edit = k; render(); window.scrollTo(0, 0); },
   cancel: () => { S.edit = null; render(); },
   doc: (k) => openDoc(Number(k)),
+  tuto: (k) => openTuto(Number(k) || 0),
+  tutoOff: () => { try { const k = 'tuto_off_' + S.me.id; if (localStorage.getItem(k) === '1') localStorage.removeItem(k); else localStorage.setItem(k, '1'); } catch (e) {} },
   close: closeDoc,
   print: () => window.print(),
   logout: async () => { await sb.auth.signOut(); S.me = null; renderLogin(); },
